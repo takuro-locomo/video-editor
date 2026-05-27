@@ -5,7 +5,7 @@ export function extractAudio(inputPath: string, outputPath: string): Promise<voi
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .noVideo()
-      .audioCodec('mp3')
+      .audioCodec('aac')
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)

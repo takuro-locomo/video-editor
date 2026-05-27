@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     if (videoExts.includes(ext)) {
       // fluent-ffmpeg で音声抽出
       const { extractAudio } = await import('@/lib/ffmpeg-server')
-      audioPath = path.join(os.tmpdir(), `audio-${sessionId}.mp3`)
+      audioPath = path.join(os.tmpdir(), `audio-${sessionId}.m4a`)
       await extractAudio(inputPath, audioPath)
     }
 
@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result)
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
     console.error('Transcribe error:', err)
-    return NextResponse.json({ error: 'Transcription failed' }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
