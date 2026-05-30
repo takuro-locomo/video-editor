@@ -1,4 +1,5 @@
 import ffmpeg from 'fluent-ffmpeg'
+import os from 'os'
 
 /** 動画から音声のみを MP3 で抽出 */
 export function extractAudio(inputPath: string, outputPath: string): Promise<void> {
@@ -39,6 +40,6 @@ export function mergeVideos(inputPaths: string[], outputPath: string): Promise<v
     command
       .on('end', () => resolve())
       .on('error', reject)
-      .mergeToFile(outputPath, require('os').tmpdir())
+      .mergeToFile(outputPath, os.tmpdir())
   })
 }
