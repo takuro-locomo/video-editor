@@ -19,9 +19,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No video file provided' }, { status: 400 })
     }
 
-    // ファイルサイズ制限: 500MB
-    if (file.size > 500 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large (max 500MB)' }, { status: 400 })
+    // ファイルサイズ制限: 2GB
+    if (file.size > 2 * 1024 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File too large (max 2GB)' }, { status: 400 })
     }
 
     const sessionId = uuidv4()

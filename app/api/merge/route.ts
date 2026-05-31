@@ -21,9 +21,9 @@ export async function POST(req: NextRequest) {
     }
 
     for (const f of files) {
-      if (f.size > 500 * 1024 * 1024) {
+      if (f.size > 2 * 1024 * 1024 * 1024) {
         return NextResponse.json(
-          { error: `ファイルが大きすぎます（最大500MB）: ${f.name}` },
+          { error: `ファイルが大きすぎます（最大2GB）: ${f.name}` },
           { status: 400 }
         )
       }

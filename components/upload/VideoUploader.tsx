@@ -109,7 +109,7 @@ export function VideoUploader() {
             <div className="text-5xl">🎬</div>
             <p className="text-white font-medium">動画をドラッグ&ドロップ</p>
             <p className="text-gray-500 text-sm">または クリックして選択（複数可）</p>
-            <p className="text-gray-600 text-xs">MP4, MOV, AVI, MKV 対応 / 各最大500MB</p>
+            <p className="text-gray-600 text-xs">MP4, MOV, AVI, MKV 対応 / 各最大2GB</p>
           </div>
         </div>
 
