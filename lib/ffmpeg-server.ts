@@ -1,5 +1,4 @@
 import ffmpeg from 'fluent-ffmpeg'
-import os from 'os'
 import { OutputAspect, OutputFit } from '@/types/subtitle'
 
 /** アスペクト比と元動画サイズから出力解像度を決定（original は null） */
@@ -104,14 +103,107 @@ export function burnSubtitles(
   })
 }
 
-/** 複数動画を結合 */
-export function mergeVideos(inputPaths: string[], outputPath: string): Promise<void> {
+/** 動画の解像度・音声有無・長さを取得 */
+function getVideoInfo(
+  inputPath: string
+): Promise<{ width: number; height: number; hasAudio: boolean; duration: number }> {
   return new Promise((resolve, reject) => {
-    const command = ffmpeg()
-    inputPaths.forEach(p => command.input(p))
+    ffmpeg.ffprobe(inputPath, (err, data) => {
+      if (err) return reject(err)
+      const v = data.streams.find((s) => s.codec_type === 'video')
+      const a = data.streams.find((s) => s.codec_type === 'audio')
+      if (!v || !v.width || !v.height) {
+        return reject(new Error('動画情報を取得できませんでした'))
+      }
+      resolve({
+        width: v.width,
+        height: v.height,
+        hasAudio: !!a,
+        duration: Number(data.format.duration) || 0,
+      })
+    })
+  })
+}
+
+/**
+ * 複数動画を1本に結合。
+ * 解像度・アスペクト比・音声有無が異なっても結合できるよう、
+ * 各クリップを先頭動画の解像度に正規化(scale+pad)し、30fps・共通音声形式に揃えて連結する。
+ */
+export async function mergeVideos(inputPaths: string[], outputPath: string): Promise<void> {
+  const infos = await Promise.all(inputPaths.map(getVideoInfo))
+
+  // ターゲット解像度: 先頭動画基準（H.264 のため偶数化）
+  let W = infos[0].width
+  let H = infos[0].height
+  W -= W % 2
+  H -= H % 2
+
+  // どれか1つでも音声があれば、無音クリップには無音トラックを足して音声付きで結合
+  const withAudio = infos.some((i) => i.hasAudio)
+
+  const command = ffmpeg()
+  inputPaths.forEach((p) => command.input(p))
+
+  // 無音クリップ用の無音ソース（lavfi anullsrc）を必要分だけ追加
+  const silentAudioInput: Record<number, number> = {}
+  let lavfiCount = 0
+  if (withAudio) {
+    infos.forEach((info, i) => {
+      if (!info.hasAudio) {
+        silentAudioInput[i] = inputPaths.length + lavfiCount
+        lavfiCount += 1
+        command
+          .input('anullsrc=channel_layout=stereo:sample_rate=44100')
+          .inputFormat('lavfi')
+      }
+    })
+  }
+
+  const filters: string[] = []
+  const concatLabels: string[] = []
+  infos.forEach((info, i) => {
+    filters.push(
+      `[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,` +
+        `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30,format=yuv420p[v${i}]`
+    )
+    if (withAudio) {
+      const aLabel = info.hasAudio ? `${i}:a` : `${silentAudioInput[i]}:a`
+      const trim = info.hasAudio ? '' : `atrim=duration=${info.duration.toFixed(3)},`
+      filters.push(
+        `[${aLabel}]${trim}aformat=sample_rates=44100:channel_layouts=stereo,` +
+          `asetpts=PTS-STARTPTS[a${i}]`
+      )
+      concatLabels.push(`[v${i}][a${i}]`)
+    } else {
+      concatLabels.push(`[v${i}]`)
+    }
+  })
+  filters.push(
+    `${concatLabels.join('')}concat=n=${infos.length}:v=1:a=${withAudio ? 1 : 0}` +
+      `[outv]${withAudio ? '[outa]' : ''}`
+  )
+
+  return new Promise((resolve, reject) => {
+    command.complexFilter(filters, withAudio ? ['outv', 'outa'] : ['outv'])
+    command.outputOptions([
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-movflags',
+      '+faststart',
+    ])
+    if (withAudio) {
+      command.outputOptions(['-c:a', 'aac', '-b:a', '192k'])
+    }
     command
       .on('end', () => resolve())
       .on('error', reject)
-      .mergeToFile(outputPath, os.tmpdir())
+      .save(outputPath)
   })
 }
