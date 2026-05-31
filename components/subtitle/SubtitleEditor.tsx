@@ -7,15 +7,22 @@ import { formatTime } from '@/lib/time-utils'
 function SubtitleItem({
   segment,
   isActive,
+  isLast,
+  currentTime,
   onClick,
 }: {
   segment: SubtitleSegment
   isActive: boolean
+  isLast: boolean
+  currentTime: number
   onClick: () => void
 }) {
-  const { updateSegment, deleteSegment, setCurrentTime } = useEditorStore()
+  const { updateSegment, deleteSegment, setCurrentTime, splitSegment, mergeWithNext } =
+    useEditorStore()
   const [isEditing, setIsEditing] = useState(false)
   const [editText, setEditText] = useState(segment.text)
+
+  const canSplit = currentTime > segment.startTime && currentTime < segment.endTime
 
   const save = () => {
     updateSegment(segment.id, { text: editText })
@@ -41,6 +48,22 @@ function SubtitleItem({
           <span className="text-xs text-gray-500 font-mono">{formatTime(segment.endTime)}</span>
         </div>
         <div className="flex gap-2">
+          <button
+            className="text-xs text-gray-500 hover:text-white px-2 py-0.5 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+            onClick={(e) => { e.stopPropagation(); splitSegment(segment.id, currentTime) }}
+            disabled={!canSplit}
+            title="再生位置で分割"
+          >
+            分割
+          </button>
+          <button
+            className="text-xs text-gray-500 hover:text-white px-2 py-0.5 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+            onClick={(e) => { e.stopPropagation(); mergeWithNext(segment.id) }}
+            disabled={isLast}
+            title="次の字幕と結合"
+          >
+            結合
+          </button>
           <button
             className="text-xs text-gray-500 hover:text-white px-2 py-0.5 rounded"
             onClick={(e) => { e.stopPropagation(); setIsEditing(!isEditing); setEditText(segment.text) }}
@@ -108,7 +131,8 @@ function SubtitleItem({
 }
 
 export function SubtitleEditor() {
-  const { segments, currentTime, isTranscribing, transcribeProgress } = useEditorStore()
+  const { segments, currentTime, isTranscribing, transcribeProgress, addSegmentAt } =
+    useEditorStore()
 
   if (isTranscribing) {
     return (
@@ -121,21 +145,38 @@ export function SubtitleEditor() {
 
   if (segments.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 p-8 text-center">
+      <div className="flex flex-col items-center justify-center h-full gap-3 p-8 text-center">
         <div className="text-4xl">📝</div>
         <p className="text-gray-400 text-sm">「AI字幕生成」ボタンを押して<br />音声を文字起こしします</p>
+        <button
+          onClick={() => addSegmentAt(currentTime)}
+          className="mt-1 text-sm text-blue-400 hover:text-blue-300 border border-gray-700 rounded-lg px-3 py-1.5"
+        >
+          ＋ 手動で字幕を追加
+        </button>
       </div>
     )
   }
 
   return (
     <div className="overflow-y-auto h-full p-3 space-y-2">
-      <p className="text-gray-500 text-xs px-1">{segments.length}件の字幕</p>
-      {segments.map((seg) => (
+      <div className="flex items-center justify-between px-1">
+        <p className="text-gray-500 text-xs">{segments.length}件の字幕</p>
+        <button
+          onClick={() => addSegmentAt(currentTime)}
+          className="text-xs text-blue-400 hover:text-blue-300"
+          title="再生位置に空の字幕を追加"
+        >
+          ＋ 現在位置に追加
+        </button>
+      </div>
+      {segments.map((seg, i) => (
         <SubtitleItem
           key={seg.id}
           segment={seg}
           isActive={currentTime >= seg.startTime && currentTime <= seg.endTime}
+          isLast={i === segments.length - 1}
+          currentTime={currentTime}
           onClick={() => useEditorStore.getState().setCurrentTime(seg.startTime)}
         />
       ))}
