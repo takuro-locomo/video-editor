@@ -1,6 +1,6 @@
 import { SubtitleSegment, SubtitleStyle } from '@/types/subtitle'
 import { secondsToSrtTime } from './time-utils'
-import { fontFamilyToAss, hexToAssColor } from './subtitle-style'
+import { fontFamilyToAss, hexToAssColor, wrapText } from './subtitle-style'
 
 /** SubtitleSegment[] を SRT 文字列に変換 */
 export function segmentsToSrt(segments: SubtitleSegment[]): string {
@@ -81,7 +81,7 @@ export function segmentsToAss(
   const events = segments
     .map(
       (seg) =>
-        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(seg.text)}`
+        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(wrapText(seg.text, style.maxCharsPerLine))}`
     )
     .join('\n')
 

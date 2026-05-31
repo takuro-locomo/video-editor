@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
 import { SubtitleSegment } from '@/types/subtitle'
-import { fontFamilyToCss, hexToRgba } from '@/lib/subtitle-style'
+import { fontFamilyToCss, hexToRgba, wrapText } from '@/lib/subtitle-style'
 
 function findActiveSegment(segments: SubtitleSegment[], currentTime: number) {
   return segments.find(
@@ -59,7 +59,7 @@ export function SubtitleOverlay() {
               : 'none',
           }}
         >
-          {active.text}
+          {wrapText(active.text, s.maxCharsPerLine)}
         </span>
       )}
     </div>

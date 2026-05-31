@@ -18,6 +18,7 @@ export interface SubtitleStyle {
   backgroundColor: string // #RRGGBB
   backgroundOpacity: number // 0〜1
   position: SubtitlePosition
+  maxCharsPerLine: number // 1行の最大文字数（0=制限なし）。超えたら自動改行
 }
 
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
@@ -30,6 +31,7 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   backgroundColor: '#000000',
   backgroundOpacity: 0.6,
   position: 'bottom',
+  maxCharsPerLine: 0,
 }
 
 export interface TranscribeResult {

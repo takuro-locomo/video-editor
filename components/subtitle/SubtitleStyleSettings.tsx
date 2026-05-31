@@ -143,6 +143,22 @@ export function SubtitleStyleSettings() {
           ))}
         </div>
       </Row>
+
+      {/* 1行の最大文字数（自動改行） */}
+      <Row label={`1行の最大文字数（${s.maxCharsPerLine === 0 ? '制限なし' : s.maxCharsPerLine}）`}>
+        <input
+          type="range"
+          min={0}
+          max={40}
+          step={1}
+          value={s.maxCharsPerLine}
+          onChange={(e) => setSubtitleStyle({ maxCharsPerLine: Number(e.target.value) })}
+          className="w-full accent-blue-500"
+        />
+        <p className="text-[11px] text-gray-600">
+          横向き動画は20前後、縦動画(リール)は12前後が目安です。
+        </p>
+      </Row>
     </div>
   )
 }
