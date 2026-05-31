@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '500mb',
     },
   },
+  // 同じWi-Fi内のスマホ等からの開発アクセスを許可（LAN IP）
+  allowedDevOrigins: ['192.168.10.1', '192.168.10.*'],
 };
 
 export default nextConfig;
