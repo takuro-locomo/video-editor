@@ -21,6 +21,19 @@ export interface SubtitleStyle {
   maxCharsPerLine: number // 1行の最大文字数（0=制限なし）。超えたら自動改行
 }
 
+export type OutputAspect = 'original' | '9:16' | '1:1' | '16:9'
+export type OutputFit = 'pad' | 'crop' // pad=全体を表示(余白) / crop=画面いっぱい(切り抜き)
+
+export interface OutputSettings {
+  aspect: OutputAspect
+  fit: OutputFit
+}
+
+export const DEFAULT_OUTPUT_SETTINGS: OutputSettings = {
+  aspect: 'original',
+  fit: 'pad',
+}
+
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontFamily: 'gothic',
   fontSizePercent: 6,

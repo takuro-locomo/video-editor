@@ -2,7 +2,8 @@
 import { useEditorStore } from '@/store/editorStore'
 
 export function useExport() {
-  const { sessionId, segments, subtitleStyle, setIsExporting } = useEditorStore()
+  const { sessionId, segments, subtitleStyle, outputSettings, setIsExporting } =
+    useEditorStore()
 
   const exportVideo = async () => {
     if (!sessionId) return
@@ -12,7 +13,12 @@ export function useExport() {
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, segments, style: subtitleStyle }),
+        body: JSON.stringify({
+          sessionId,
+          segments,
+          style: subtitleStyle,
+          output: outputSettings,
+        }),
       })
 
       if (!res.ok) throw new Error('Export failed')

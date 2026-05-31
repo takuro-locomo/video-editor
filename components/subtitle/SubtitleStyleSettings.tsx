@@ -1,6 +1,11 @@
 'use client'
 import { useEditorStore } from '@/store/editorStore'
-import { SubtitleFontFamily, SubtitlePosition } from '@/types/subtitle'
+import {
+  SubtitleFontFamily,
+  SubtitlePosition,
+  OutputAspect,
+  OutputFit,
+} from '@/types/subtitle'
 
 const FONT_OPTIONS: { value: SubtitleFontFamily; label: string }[] = [
   { value: 'gothic', label: 'ゴシック' },
@@ -14,6 +19,18 @@ const POSITION_OPTIONS: { value: SubtitlePosition; label: string }[] = [
   { value: 'bottom', label: '下' },
 ]
 
+const ASPECT_OPTIONS: { value: OutputAspect; label: string }[] = [
+  { value: 'original', label: '元のまま' },
+  { value: '9:16', label: '9:16 リール' },
+  { value: '1:1', label: '1:1 正方形' },
+  { value: '16:9', label: '16:9 横長' },
+]
+
+const FIT_OPTIONS: { value: OutputFit; label: string }[] = [
+  { value: 'pad', label: '全体表示（余白）' },
+  { value: 'crop', label: '画面いっぱい（切抜）' },
+]
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
@@ -24,7 +41,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export function SubtitleStyleSettings() {
-  const { subtitleStyle: s, setSubtitleStyle } = useEditorStore()
+  const { subtitleStyle: s, setSubtitleStyle, outputSettings: o, setOutputSettings } =
+    useEditorStore()
 
   return (
     <div className="overflow-y-auto h-full p-4 space-y-5">
@@ -159,6 +177,47 @@ export function SubtitleStyleSettings() {
           横向き動画は20前後、縦動画(リール)は12前後が目安です。
         </p>
       </Row>
+
+      {/* 出力設定（アスペクト比） */}
+      <div className="pt-4 mt-1 border-t border-gray-800 space-y-5">
+        <p className="text-xs text-gray-300 font-semibold">出力設定</p>
+
+        <Row label="アスペクト比">
+          <div className="grid grid-cols-2 gap-1.5">
+            {ASPECT_OPTIONS.map((a) => (
+              <button
+                key={a.value}
+                onClick={() => setOutputSettings({ aspect: a.value })}
+                className={`text-sm py-2 rounded-lg border transition-colors
+                  ${o.aspect === a.value
+                    ? 'border-blue-500 bg-blue-950/40 text-white'
+                    : 'border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700'}`}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </Row>
+
+        {o.aspect !== 'original' && (
+          <Row label="フィット方法">
+            <div className="grid grid-cols-2 gap-1.5">
+              {FIT_OPTIONS.map((f) => (
+                <button
+                  key={f.value}
+                  onClick={() => setOutputSettings({ fit: f.value })}
+                  className={`text-sm py-2 rounded-lg border transition-colors
+                    ${o.fit === f.value
+                      ? 'border-blue-500 bg-blue-950/40 text-white'
+                      : 'border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700'}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </Row>
+        )}
+      </div>
     </div>
   )
 }

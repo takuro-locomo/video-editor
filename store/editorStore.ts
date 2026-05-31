@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import { SubtitleSegment, SubtitleStyle, DEFAULT_SUBTITLE_STYLE } from '@/types/subtitle'
+import {
+  SubtitleSegment,
+  SubtitleStyle,
+  DEFAULT_SUBTITLE_STYLE,
+  OutputSettings,
+  DEFAULT_OUTPUT_SETTINGS,
+} from '@/types/subtitle'
 
 function newSegmentId(): string {
   return `seg-${crypto.randomUUID()}`
@@ -15,6 +21,7 @@ interface EditorState {
   // 字幕
   segments: SubtitleSegment[]
   subtitleStyle: SubtitleStyle
+  outputSettings: OutputSettings
 
   // 再生状態
   currentTime: number
@@ -31,6 +38,7 @@ interface EditorState {
   setDuration: (duration: number) => void
   setSegments: (segments: SubtitleSegment[]) => void
   setSubtitleStyle: (patch: Partial<SubtitleStyle>) => void
+  setOutputSettings: (patch: Partial<OutputSettings>) => void
   updateSegment: (id: string, patch: Partial<SubtitleSegment>) => void
   deleteSegment: (id: string) => void
   addSegment: (segment: SubtitleSegment) => void
@@ -53,6 +61,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   duration: 0,
   segments: [],
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
+  outputSettings: DEFAULT_OUTPUT_SETTINGS,
   currentTime: 0,
   isPlaying: false,
   activeTab: 'video',
@@ -66,6 +75,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setSegments: (segments) => set({ segments }),
   setSubtitleStyle: (patch) =>
     set((s) => ({ subtitleStyle: { ...s.subtitleStyle, ...patch } })),
+  setOutputSettings: (patch) =>
+    set((s) => ({ outputSettings: { ...s.outputSettings, ...patch } })),
   updateSegment: (id, patch) =>
     set((s) => ({
       segments: s.segments.map((seg) => (seg.id === id ? { ...seg, ...patch } : seg)),
