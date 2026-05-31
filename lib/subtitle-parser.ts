@@ -98,7 +98,7 @@ export function segmentsToAss(
   return `${header}\n${events}\n`
 }
 
-/** Whisper の verbose_json レスポンスを SubtitleSegment[] に変換 */
+/** Whisper の verbose_json レスポンス(segment単位)を SubtitleSegment[] に変換 */
 export function whisperToSegments(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   whisperSegments: any[]
@@ -109,4 +109,49 @@ export function whisperToSegments(
     endTime: seg.end,
     text: seg.text.trim(),
   }))
+}
+
+/**
+ * Whisper の単語タイムスタンプ(words)から、実際の発話に沿った字幕を生成する。
+ * 無音(ポーズ)・文字数・長さで区切ることで、しゃべっている区間だけに字幕が出る。
+ */
+export function wordsToSegments(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  words: any[],
+  opts: { maxGap?: number; maxChars?: number; maxDuration?: number } = {}
+): SubtitleSegment[] {
+  const maxGap = opts.maxGap ?? 0.6 // この秒数以上の無音で区切る
+  const maxChars = opts.maxChars ?? 18 // 1字幕の目安文字数
+  const maxDuration = opts.maxDuration ?? 4 // 1字幕の最大秒数
+
+  type Group = { startTime: number; endTime: number; text: string }
+  const groups: Group[] = []
+  let cur: Group | null = null
+
+  for (const w of words) {
+    const token: string = (w.word ?? '').toString()
+    const start = Number(w.start)
+    const end = Number(w.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue
+
+    if (!cur) {
+      cur = { startTime: start, endTime: end, text: token }
+      continue
+    }
+    const gap = start - cur.endTime
+    const tooLong = cur.text.length + token.length > maxChars
+    const tooDur = end - cur.startTime > maxDuration
+    if (gap > maxGap || tooLong || tooDur) {
+      groups.push(cur)
+      cur = { startTime: start, endTime: end, text: token }
+    } else {
+      cur.text += token
+      cur.endTime = end
+    }
+  }
+  if (cur) groups.push(cur)
+
+  return groups
+    .map((g, i) => ({ id: `seg-${i}`, startTime: g.startTime, endTime: g.endTime, text: g.text.trim() }))
+    .filter((s) => s.text.length > 0)
 }
