@@ -68,7 +68,8 @@ export function burnSubtitles(
   inputPath: string,
   subtitlePath: string,
   outputPath: string,
-  format?: { width: number; height: number; fit: OutputFit }
+  format?: { width: number; height: number; fit: OutputFit },
+  trim?: { start: number; end: number }
 ): Promise<void> {
   // Windows パスのバックスラッシュをエスケープ
   const escapedPath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')
@@ -89,7 +90,12 @@ export function burnSubtitles(
   filters.push(`subtitles='${escapedPath}'`)
 
   return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
+    const command = ffmpeg(inputPath)
+    // トリミング: 開始位置までシークし、区間長だけ出力（字幕側の時刻は事前にシフト済み）
+    if (trim && trim.end > trim.start) {
+      command.seekInput(trim.start).duration(trim.end - trim.start)
+    }
+    command
       .videoFilters(filters)
       .outputOptions('-c:a copy')
       .on('end', () => resolve())

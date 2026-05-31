@@ -23,6 +23,10 @@ interface EditorState {
   subtitleStyle: SubtitleStyle
   outputSettings: OutputSettings
 
+  // トリミング（1区間。null=未設定で全体を使用）
+  trimStart: number | null
+  trimEnd: number | null
+
   // 再生状態
   currentTime: number
   isPlaying: boolean
@@ -45,6 +49,9 @@ interface EditorState {
   addSegmentAt: (time: number) => string // 指定時刻に空字幕を追加し、新IDを返す
   splitSegment: (id: string, atTime: number) => void
   mergeWithNext: (id: string) => void
+  setTrimStart: (time: number | null) => void
+  setTrimEnd: (time: number | null) => void
+  resetTrim: () => void
   setCurrentTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
   setActiveTab: (tab: 'video' | 'subtitles' | 'settings') => void
@@ -62,6 +69,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   segments: [],
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   outputSettings: DEFAULT_OUTPUT_SETTINGS,
+  trimStart: null,
+  trimEnd: null,
   currentTime: 0,
   isPlaying: false,
   activeTab: 'video',
@@ -70,7 +79,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   transcribeProgress: '',
 
   setVideo: (sessionId, videoUrl, filename) =>
-    set({ sessionId, videoUrl, filename, segments: [] }),
+    set({ sessionId, videoUrl, filename, segments: [], trimStart: null, trimEnd: null }),
   setDuration: (duration) => set({ duration }),
   setSegments: (segments) => set({ segments }),
   setSubtitleStyle: (patch) =>
@@ -133,6 +142,9 @@ export const useEditorStore = create<EditorState>((set) => ({
           .sort((a, b) => a.startTime - b.startTime),
       }
     }),
+  setTrimStart: (trimStart) => set({ trimStart }),
+  setTrimEnd: (trimEnd) => set({ trimEnd }),
+  resetTrim: () => set({ trimStart: null, trimEnd: null }),
   setCurrentTime: (currentTime) => set({ currentTime }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -146,6 +158,8 @@ export const useEditorStore = create<EditorState>((set) => ({
       filename: null,
       duration: 0,
       segments: [],
+      trimStart: null,
+      trimEnd: null,
       currentTime: 0,
       isPlaying: false,
     }),

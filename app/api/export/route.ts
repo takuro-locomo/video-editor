@@ -22,11 +22,13 @@ export async function POST(req: NextRequest) {
       segments,
       style,
       output,
+      trim,
     }: {
       sessionId: string
       segments: SubtitleSegment[]
       style?: SubtitleStyle
       output?: OutputSettings
+      trim?: { start: number; end: number }
     } = await req.json()
 
     if (!sessionId) {
@@ -46,21 +48,34 @@ export async function POST(req: NextRequest) {
     const outputSettings = output ?? DEFAULT_OUTPUT_SETTINGS
     const target = computeTargetDimensions(outputSettings.aspect, width, height)
 
+    // トリミング指定があれば、区間に重なる字幕だけ残し、時刻を区間先頭基準にシフト
+    const useTrim = trim && trim.end > trim.start
+    const exportSegments: SubtitleSegment[] = useTrim
+      ? segments
+          .filter((seg) => seg.endTime > trim!.start && seg.startTime < trim!.end)
+          .map((seg) => ({
+            ...seg,
+            startTime: Math.max(0, seg.startTime - trim!.start),
+            endTime: Math.min(trim!.end, seg.endTime) - trim!.start,
+          }))
+      : segments
+
     // 字幕は整形後のフレームに描画されるため、ASS の解像度もターゲットに合わせる
     const assDims = target ?? { width, height }
     const subtitleStyle = style ?? DEFAULT_SUBTITLE_STYLE
     fs.writeFileSync(
       assPath,
-      segmentsToAss(segments, subtitleStyle, assDims.width, assDims.height),
+      segmentsToAss(exportSegments, subtitleStyle, assDims.width, assDims.height),
       'utf-8'
     )
 
-    // FFmpeg で字幕焼き込み（必要ならアスペクト比整形も）
+    // FFmpeg で字幕焼き込み（必要ならアスペクト比整形・トリミングも）
     await burnSubtitles(
       inputPath,
       assPath,
       outputPath,
-      target ? { ...target, fit: outputSettings.fit } : undefined
+      target ? { ...target, fit: outputSettings.fit } : undefined,
+      useTrim ? trim : undefined
     )
 
     // ファイルをストリームで返す

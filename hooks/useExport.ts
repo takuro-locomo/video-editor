@@ -2,7 +2,7 @@
 import { useEditorStore } from '@/store/editorStore'
 
 export function useExport() {
-  const { sessionId, segments, subtitleStyle, outputSettings, setIsExporting } =
+  const { sessionId, segments, subtitleStyle, outputSettings, trimStart, trimEnd, setIsExporting } =
     useEditorStore()
 
   const exportVideo = async () => {
@@ -18,6 +18,10 @@ export function useExport() {
           segments,
           style: subtitleStyle,
           output: outputSettings,
+          trim:
+            trimStart !== null && trimEnd !== null && trimEnd > trimStart
+              ? { start: trimStart, end: trimEnd }
+              : undefined,
         }),
       })
 
