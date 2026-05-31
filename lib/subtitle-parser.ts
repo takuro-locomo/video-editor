@@ -120,9 +120,11 @@ export function wordsToSegments(
   words: any[],
   opts: { maxGap?: number; maxChars?: number; maxDuration?: number } = {}
 ): SubtitleSegment[] {
-  const maxGap = opts.maxGap ?? 0.6 // この秒数以上の無音で区切る
-  const maxChars = opts.maxChars ?? 18 // 1字幕の目安文字数
-  const maxDuration = opts.maxDuration ?? 4 // 1字幕の最大秒数
+  const maxGap = opts.maxGap ?? 0.9 // この秒数以上の無音で区切る（短い息継ぎでは切らない）
+  const maxChars = opts.maxChars ?? 32 // 1字幕の最大文字数（上限）
+  const maxDuration = opts.maxDuration ?? 6 // 1字幕の最大秒数（上限）
+  // 文末記号は意味の切れ目として区切る
+  const sentenceEnd = /[。．！？!?]$/
 
   type Group = { startTime: number; endTime: number; text: string }
   const groups: Group[] = []
@@ -134,19 +136,26 @@ export function wordsToSegments(
     const end = Number(w.end)
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue
 
-    if (!cur) {
-      cur = { startTime: start, endTime: end, text: token }
-      continue
+    // 無音・文字数・長さの上限を超えたら、まず現在の字幕を確定
+    if (cur) {
+      const gap = start - cur.endTime
+      const tooLong = cur.text.length + token.length > maxChars
+      const tooDur = end - cur.startTime > maxDuration
+      if (gap > maxGap || tooLong || tooDur) {
+        groups.push(cur)
+        cur = null
+      }
     }
-    const gap = start - cur.endTime
-    const tooLong = cur.text.length + token.length > maxChars
-    const tooDur = end - cur.startTime > maxDuration
-    if (gap > maxGap || tooLong || tooDur) {
-      groups.push(cur)
+    if (!cur) {
       cur = { startTime: start, endTime: end, text: token }
     } else {
       cur.text += token
       cur.endTime = end
+    }
+    // 意味の切れ目（文末）で区切る
+    if (sentenceEnd.test(cur.text.trim())) {
+      groups.push(cur)
+      cur = null
     }
   }
   if (cur) groups.push(cur)
