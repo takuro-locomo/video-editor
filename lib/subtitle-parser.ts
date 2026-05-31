@@ -62,6 +62,16 @@ export function segmentsToAss(
   const marginV = Math.round(height * 0.06)
   const marginLR = Math.round(width * 0.04)
 
+  // 自動折り返し: フレーム幅とフォントサイズから1行に収まる文字数を求める。
+  // libass は日本語(スペース無し)を折り返せないことがあるため、こちらで明示的に改行する。
+  // 全角1文字 ≒ fontSize 幅とみなす。ユーザー指定があればその小さい方を採用。
+  const usableWidth = width - marginLR * 2
+  const autoMaxChars = Math.max(1, Math.floor(usableWidth / fontSize))
+  const effectiveMaxChars =
+    style.maxCharsPerLine > 0
+      ? Math.min(style.maxCharsPerLine, autoMaxChars)
+      : autoMaxChars
+
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -81,7 +91,7 @@ export function segmentsToAss(
   const events = segments
     .map(
       (seg) =>
-        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(wrapText(seg.text, style.maxCharsPerLine))}`
+        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(wrapText(seg.text, effectiveMaxChars))}`
     )
     .join('\n')
 
