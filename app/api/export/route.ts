@@ -3,15 +3,19 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { getInputPath, getSessionDir } from '@/lib/session'
-import { segmentsToSrt } from '@/lib/subtitle-parser'
-import { SubtitleSegment } from '@/types/subtitle'
+import { segmentsToAss } from '@/lib/subtitle-parser'
+import { SubtitleSegment, SubtitleStyle, DEFAULT_SUBTITLE_STYLE } from '@/types/subtitle'
 
 export const runtime = 'nodejs'
 export const maxDuration = 600
 
 export async function POST(req: NextRequest) {
   try {
-    const { sessionId, segments }: { sessionId: string; segments: SubtitleSegment[] } =
+    const {
+      sessionId,
+      segments,
+      style,
+    }: { sessionId: string; segments: SubtitleSegment[]; style?: SubtitleStyle } =
       await req.json()
 
     if (!sessionId) {
@@ -20,15 +24,17 @@ export async function POST(req: NextRequest) {
 
     const inputPath = getInputPath(sessionId)
     const sessionDir = getSessionDir(sessionId)
-    const srtPath = path.join(sessionDir, 'subtitles.srt')
+    const assPath = path.join(sessionDir, 'subtitles.ass')
     const outputPath = path.join(os.tmpdir(), `output-${sessionId}.mp4`)
 
-    // SRT ファイルを書き出し
-    fs.writeFileSync(srtPath, segmentsToSrt(segments), 'utf-8')
+    // 動画の解像度を取得し、スタイル付き ASS 字幕を書き出し
+    const { burnSubtitles, getVideoDimensions } = await import('@/lib/ffmpeg-server')
+    const { width, height } = await getVideoDimensions(inputPath)
+    const subtitleStyle = style ?? DEFAULT_SUBTITLE_STYLE
+    fs.writeFileSync(assPath, segmentsToAss(segments, subtitleStyle, width, height), 'utf-8')
 
     // FFmpeg で字幕焼き込み
-    const { burnSubtitles } = await import('@/lib/ffmpeg-server')
-    await burnSubtitles(inputPath, srtPath, outputPath)
+    await burnSubtitles(inputPath, assPath, outputPath)
 
     // ファイルをストリームで返す
     const fileBuffer = fs.readFileSync(outputPath)

@@ -1,11 +1,14 @@
 'use client'
+import { useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
 import { VideoPlayer } from './VideoPlayer'
 import { Toolbar } from './Toolbar'
 import { SubtitleEditor } from '@/components/subtitle/SubtitleEditor'
+import { SubtitleStyleSettings } from '@/components/subtitle/SubtitleStyleSettings'
 
 export function EditorLayout() {
   const { activeTab, setActiveTab } = useEditorStore()
+  const [rightPanel, setRightPanel] = useState<'list' | 'style'>('list')
 
   return (
     <div className="flex flex-col h-screen bg-gray-950">
@@ -26,10 +29,27 @@ export function EditorLayout() {
         {/* 字幕エリア（PCは常時表示、スマホはタブ選択時のみ） */}
         <div className={`flex flex-col md:w-96 overflow-hidden
           ${activeTab === 'subtitles' ? 'flex flex-1' : 'hidden md:flex'}`}>
-          <div className="hidden md:block px-3 py-2 border-b border-gray-800">
-            <h2 className="text-gray-400 text-xs font-medium uppercase tracking-wide">字幕リスト</h2>
+          {/* 字幕リスト / デザイン 切替 */}
+          <div className="flex border-b border-gray-800">
+            {([
+              { key: 'list', label: '字幕リスト' },
+              { key: 'style', label: '🎨 デザイン' },
+            ] as const).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setRightPanel(t.key)}
+                className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors
+                  ${rightPanel === t.key
+                    ? 'text-blue-400 border-b-2 border-blue-400'
+                    : 'text-gray-500 hover:text-gray-300'}`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-          <SubtitleEditor />
+          <div className="flex-1 overflow-hidden">
+            {rightPanel === 'list' ? <SubtitleEditor /> : <SubtitleStyleSettings />}
+          </div>
         </div>
       </div>
 

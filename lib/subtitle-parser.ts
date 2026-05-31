@@ -1,5 +1,6 @@
-import { SubtitleSegment } from '@/types/subtitle'
+import { SubtitleSegment, SubtitleStyle } from '@/types/subtitle'
 import { secondsToSrtTime } from './time-utils'
+import { fontFamilyToAss, hexToAssColor } from './subtitle-style'
 
 /** SubtitleSegment[] を SRT 文字列に変換 */
 export function segmentsToSrt(segments: SubtitleSegment[]): string {
@@ -10,6 +11,81 @@ export function segmentsToSrt(segments: SubtitleSegment[]): string {
       return `${i + 1}\n${start} --> ${end}\n${seg.text}\n`
     })
     .join('\n')
+}
+
+/** 秒数を ASS タイムコード形式に変換 (例: 3661.5 → "1:01:01.50") */
+function secondsToAssTime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  const cs = Math.round((seconds % 1) * 100)
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`
+}
+
+/** ASS の Text フィールド用にエスケープ（改行→\N、波括弧は全角に置換） */
+function escapeAssText(text: string): string {
+  return text
+    .replace(/[{}]/g, (c) => (c === '{' ? '｛' : '｝'))
+    .replace(/\r?\n/g, '\\N')
+}
+
+/** 位置 → ASS の Alignment(numpad)。中央寄せ: top=8, middle=5, bottom=2 */
+function positionToAlignment(position: SubtitleStyle['position']): number {
+  return position === 'top' ? 8 : position === 'middle' ? 5 : 2
+}
+
+/**
+ * SubtitleSegment[] を スタイル付き ASS 文字列に変換。
+ * PlayResX/Y を動画の実寸にすることで、フォントサイズ(%)が出力解像度に正しく追従する。
+ */
+export function segmentsToAss(
+  segments: SubtitleSegment[],
+  style: SubtitleStyle,
+  width: number,
+  height: number
+): string {
+  const fontName = fontFamilyToAss(style.fontFamily)
+  const fontSize = Math.round((style.fontSizePercent / 100) * height)
+  const primary = hexToAssColor(style.textColor, 1)
+  const outlineColour = '&H00000000' // 黒フチ
+  const backColour = hexToAssColor(style.backgroundColor, style.backgroundOpacity)
+  const bold = style.bold ? -1 : 0
+  // 背景ありなら不透明ボックス(3)、なければ縁取り(1)
+  const borderStyle = style.backgroundEnabled ? 3 : 1
+  const outline = style.backgroundEnabled
+    ? Math.max(4, Math.round(height * 0.006)) // ボックスの余白
+    : style.outline
+    ? Math.max(2, Math.round(height * 0.004)) // 縁取りの太さ
+    : 0
+  const shadow = style.backgroundEnabled || !style.outline ? 0 : 1
+  const alignment = positionToAlignment(style.position)
+  const marginV = Math.round(height * 0.06)
+  const marginLR = Math.round(width * 0.04)
+
+  const header = [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    'WrapStyle: 0',
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    `Style: Default,${fontName},${fontSize},${primary},&H000000FF,${outlineColour},${backColour},${bold},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginLR},${marginLR},${marginV},1`,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+  ].join('\n')
+
+  const events = segments
+    .map(
+      (seg) =>
+        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(seg.text)}`
+    )
+    .join('\n')
+
+  return `${header}\n${events}\n`
 }
 
 /** Whisper の verbose_json レスポンスを SubtitleSegment[] に変換 */

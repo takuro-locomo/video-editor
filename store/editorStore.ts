@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { SubtitleSegment } from '@/types/subtitle'
+import { SubtitleSegment, SubtitleStyle, DEFAULT_SUBTITLE_STYLE } from '@/types/subtitle'
 
 interface EditorState {
   // 動画
@@ -10,6 +10,7 @@ interface EditorState {
 
   // 字幕
   segments: SubtitleSegment[]
+  subtitleStyle: SubtitleStyle
 
   // 再生状態
   currentTime: number
@@ -25,6 +26,7 @@ interface EditorState {
   setVideo: (sessionId: string, videoUrl: string, filename: string) => void
   setDuration: (duration: number) => void
   setSegments: (segments: SubtitleSegment[]) => void
+  setSubtitleStyle: (patch: Partial<SubtitleStyle>) => void
   updateSegment: (id: string, patch: Partial<SubtitleSegment>) => void
   deleteSegment: (id: string) => void
   addSegment: (segment: SubtitleSegment) => void
@@ -43,6 +45,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   filename: null,
   duration: 0,
   segments: [],
+  subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   currentTime: 0,
   isPlaying: false,
   activeTab: 'video',
@@ -54,6 +57,8 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({ sessionId, videoUrl, filename, segments: [] }),
   setDuration: (duration) => set({ duration }),
   setSegments: (segments) => set({ segments }),
+  setSubtitleStyle: (patch) =>
+    set((s) => ({ subtitleStyle: { ...s.subtitleStyle, ...patch } })),
   updateSegment: (id, patch) =>
     set((s) => ({
       segments: s.segments.map((seg) => (seg.id === id ? { ...seg, ...patch } : seg)),
