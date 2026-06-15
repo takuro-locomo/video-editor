@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const { burnSubtitles, getVideoDimensions, computeTargetDimensions } = await import(
       '@/lib/ffmpeg-server'
     )
-    const { width, height } = await getVideoDimensions(inputPath)
+    const { width, height, fps } = await getVideoDimensions(inputPath)
     const outputSettings = output ?? DEFAULT_OUTPUT_SETTINGS
     const target = computeTargetDimensions(outputSettings.aspect, width, height)
 
@@ -75,7 +75,8 @@ export async function POST(req: NextRequest) {
       assPath,
       outputPath,
       target ? { ...target, fit: outputSettings.fit } : undefined,
-      useTrim ? trim : undefined
+      useTrim ? trim : undefined,
+      fps
     )
 
     // ファイルをストリームで返す

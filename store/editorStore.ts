@@ -17,6 +17,12 @@ interface EditorState {
   videoUrl: string | null
   filename: string | null
   duration: number
+  naturalWidth: number
+  naturalHeight: number
+
+  // プレビュー（実機の見え方確認）
+  previewDevice: 'normal' | 'iphone16pro'
+  previewOrientation: 'portrait' | 'landscape'
 
   // 字幕
   segments: SubtitleSegment[]
@@ -40,6 +46,9 @@ interface EditorState {
   // アクション
   setVideo: (sessionId: string, videoUrl: string, filename: string) => void
   setDuration: (duration: number) => void
+  setNaturalSize: (width: number, height: number) => void
+  setPreviewDevice: (device: 'normal' | 'iphone16pro') => void
+  setPreviewOrientation: (orientation: 'portrait' | 'landscape') => void
   setSegments: (segments: SubtitleSegment[]) => void
   setSubtitleStyle: (patch: Partial<SubtitleStyle>) => void
   setOutputSettings: (patch: Partial<OutputSettings>) => void
@@ -66,6 +75,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   videoUrl: null,
   filename: null,
   duration: 0,
+  naturalWidth: 0,
+  naturalHeight: 0,
+  previewDevice: 'normal',
+  previewOrientation: 'portrait',
   segments: [],
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   outputSettings: DEFAULT_OUTPUT_SETTINGS,
@@ -81,6 +94,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   setVideo: (sessionId, videoUrl, filename) =>
     set({ sessionId, videoUrl, filename, segments: [], trimStart: null, trimEnd: null }),
   setDuration: (duration) => set({ duration }),
+  setNaturalSize: (naturalWidth, naturalHeight) => set({ naturalWidth, naturalHeight }),
+  setPreviewDevice: (previewDevice) => set({ previewDevice }),
+  setPreviewOrientation: (previewOrientation) => set({ previewOrientation }),
   setSegments: (segments) => set({ segments }),
   setSubtitleStyle: (patch) =>
     set((s) => ({ subtitleStyle: { ...s.subtitleStyle, ...patch } })),

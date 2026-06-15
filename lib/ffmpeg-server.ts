@@ -30,10 +30,18 @@ export function computeTargetDimensions(
   return { width: width - (width % 2), height: height - (height % 2) }
 }
 
-/** 動画の解像度(幅・高さ)を取得 */
+/** "30000/1001" のような分数表記のフレームレートを数値(fps)に変換。妥当域(1〜60)に丸める */
+function parseFrameRate(rate?: string): number {
+  if (!rate) return 30
+  const [n, d] = rate.split('/').map(Number)
+  const fps = d > 0 && n > 0 ? n / d : 30
+  return Math.min(Math.max(Math.round(fps * 1000) / 1000, 1), 60)
+}
+
+/** 動画の解像度(幅・高さ)とフレームレートを取得 */
 export function getVideoDimensions(
   inputPath: string
-): Promise<{ width: number; height: number }> {
+): Promise<{ width: number; height: number; fps: number }> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(inputPath, (err, data) => {
       if (err) return reject(err)
@@ -41,7 +49,11 @@ export function getVideoDimensions(
       if (!stream || !stream.width || !stream.height) {
         return reject(new Error('動画の解像度を取得できませんでした'))
       }
-      resolve({ width: stream.width, height: stream.height })
+      // avg_frame_rate を優先（VFRでも平均値が取れる）。無効なら r_frame_rate にフォールバック
+      const avg = stream.avg_frame_rate && stream.avg_frame_rate !== '0/0'
+        ? stream.avg_frame_rate
+        : stream.r_frame_rate
+      resolve({ width: stream.width, height: stream.height, fps: parseFrameRate(avg) })
     })
   })
 }
@@ -68,12 +80,16 @@ export function burnSubtitles(
   subtitlePath: string,
   outputPath: string,
   format?: { width: number; height: number; fit: OutputFit },
-  trim?: { start: number; end: number }
+  trim?: { start: number; end: number },
+  fps = 30
 ): Promise<void> {
   // Windows パスのバックスラッシュをエスケープ
   const escapedPath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')
 
   const filters: string[] = []
+  // 可変フレームレート(VFR)を固定フレームレート(CFR)へ正規化。
+  // これをしないと iPhone 等で「途中からスローモーション」になる(タイムスタンプずれ)。
+  filters.push(`fps=${fps}`)
   if (format) {
     const { width: w, height: h, fit } = format
     if (fit === 'pad') {
@@ -96,7 +112,17 @@ export function burnSubtitles(
     }
     command
       .videoFilters(filters)
-      .outputOptions('-c:a copy')
+      .outputOptions([
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '20',
+        '-pix_fmt', 'yuv420p',
+        '-profile:v', 'high',       // levelはlibx264に自動選択させる(4K原寸でも失敗しない)
+        '-r', String(fps),          // 出力も固定フレームレートに固定
+        '-c:a', 'aac',              // 音声を再エンコードして映像と確実に同期(copyだと再タイミングでズレる)
+        '-b:a', '192k',
+        '-movflags', '+faststart',  // iPhone での読み込み/シークを安定化
+      ])
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)

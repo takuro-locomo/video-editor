@@ -1,6 +1,6 @@
 import { SubtitleSegment, SubtitleStyle } from '@/types/subtitle'
 import { secondsToSrtTime } from './time-utils'
-import { fontFamilyToAss, hexToAssColor, wrapText } from './subtitle-style'
+import { fontFamilyToAss, hexToAssColor, wrapText, computeEffectiveMaxChars } from './subtitle-style'
 
 /** SubtitleSegment[] を SRT 文字列に変換 */
 export function segmentsToSrt(segments: SubtitleSegment[]): string {
@@ -64,13 +64,13 @@ export function segmentsToAss(
 
   // 自動折り返し: フレーム幅とフォントサイズから1行に収まる文字数を求める。
   // libass は日本語(スペース無し)を折り返せないことがあるため、こちらで明示的に改行する。
-  // 全角1文字 ≒ fontSize 幅とみなす。ユーザー指定があればその小さい方を採用。
-  const usableWidth = width - marginLR * 2
-  const autoMaxChars = Math.max(1, Math.floor(usableWidth / fontSize))
-  const effectiveMaxChars =
-    style.maxCharsPerLine > 0
-      ? Math.min(style.maxCharsPerLine, autoMaxChars)
-      : autoMaxChars
+  // プレビュー(SubtitleOverlay)と同じ共通ロジックを使い、編集中の見た目と一致させる。
+  const effectiveMaxChars = computeEffectiveMaxChars(
+    width,
+    height,
+    style.fontSizePercent,
+    style.maxCharsPerLine
+  )
 
   const header = [
     '[Script Info]',
