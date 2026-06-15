@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   SubtitleSegment,
   SubtitleStyle,
+  StyleRun,
   DEFAULT_SUBTITLE_STYLE,
   OutputSettings,
   DEFAULT_OUTPUT_SETTINGS,
@@ -45,6 +46,7 @@ interface EditorState {
 
   // アクション
   setVideo: (sessionId: string, videoUrl: string, filename: string) => void
+  setVideoUrl: (videoUrl: string) => void
   setDuration: (duration: number) => void
   setNaturalSize: (width: number, height: number) => void
   setPreviewDevice: (device: 'normal' | 'iphone16pro') => void
@@ -53,6 +55,8 @@ interface EditorState {
   setSubtitleStyle: (patch: Partial<SubtitleStyle>) => void
   setOutputSettings: (patch: Partial<OutputSettings>) => void
   updateSegment: (id: string, patch: Partial<SubtitleSegment>) => void
+  updateSegmentStyle: (id: string, patch: Partial<SubtitleStyle> | null) => void
+  updateSegmentRuns: (id: string, runs: StyleRun[]) => void
   deleteSegment: (id: string) => void
   addSegment: (segment: SubtitleSegment) => void
   addSegmentAt: (time: number) => string // 指定時刻に空字幕を追加し、新IDを返す
@@ -93,6 +97,7 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setVideo: (sessionId, videoUrl, filename) =>
     set({ sessionId, videoUrl, filename, segments: [], trimStart: null, trimEnd: null }),
+  setVideoUrl: (videoUrl) => set({ videoUrl }),
   setDuration: (duration) => set({ duration }),
   setNaturalSize: (naturalWidth, naturalHeight) => set({ naturalWidth, naturalHeight }),
   setPreviewDevice: (previewDevice) => set({ previewDevice }),
@@ -105,6 +110,20 @@ export const useEditorStore = create<EditorState>((set) => ({
   updateSegment: (id, patch) =>
     set((s) => ({
       segments: s.segments.map((seg) => (seg.id === id ? { ...seg, ...patch } : seg)),
+    })),
+  updateSegmentStyle: (id, patch) =>
+    set((s) => ({
+      segments: s.segments.map((seg) =>
+        seg.id === id
+          ? { ...seg, styleOverride: patch === null ? undefined : { ...seg.styleOverride, ...patch } }
+          : seg
+      ),
+    })),
+  updateSegmentRuns: (id, runs) =>
+    set((s) => ({
+      segments: s.segments.map((seg) =>
+        seg.id === id ? { ...seg, styleRuns: runs.length ? runs : undefined } : seg
+      ),
     })),
   deleteSegment: (id) =>
     set((s) => ({ segments: s.segments.filter((seg) => seg.id !== id) })),
