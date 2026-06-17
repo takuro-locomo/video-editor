@@ -86,6 +86,7 @@ interface EditorState {
   setTranscribeProgress: (msg: string) => void
   undo: () => void
   redo: () => void
+  saveToHistory: () => void
   reset: () => void
 }
 
@@ -261,6 +262,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         _future: s._future.slice(1),
       }
     }),
+  saveToHistory: () => set((s) => withHist(s)),
   reset: () =>
     set({
       sessionId: null,
