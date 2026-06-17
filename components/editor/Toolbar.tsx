@@ -1,17 +1,35 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useEditorStore } from '@/store/editorStore'
 import { useTranscribe } from '@/hooks/useTranscribe'
 import { useExport } from '@/hooks/useExport'
 
 export function Toolbar() {
-  const { filename, segments, isTranscribing, isExporting, sessionId, setVideoUrl } =
+  const { filename, segments, isTranscribing, isExporting, sessionId, setVideoUrl, undo, redo, _past, _future } =
     useEditorStore()
   const { transcribe } = useTranscribe()
   const { exportVideo } = useExport()
 
+  const canUndo = _past.length > 0
+  const canRedo = _future.length > 0
+
   const [isAppending, setIsAppending] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [undo, redo])
 
   const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -53,6 +71,26 @@ export function Toolbar() {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Undo / Redo */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="元に戻す (Ctrl+Z)"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors text-base"
+          >
+            ↩
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            title="やり直し (Ctrl+Y)"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors text-base"
+          >
+            ↪
+          </button>
+        </div>
+
         {/* 動画追加 */}
         <input
           ref={fileInputRef}
