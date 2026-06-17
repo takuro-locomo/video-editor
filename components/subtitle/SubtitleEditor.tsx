@@ -27,6 +27,7 @@ function SubtitleItem({
     subtitleStyle,
     updateSegment,
     updateSegmentStyle,
+    resetSegmentStyleKey,
     updateSegmentRuns,
     deleteSegment,
     setCurrentTime,
@@ -149,8 +150,23 @@ function SubtitleItem({
         >
           <p className="text-xs text-purple-300 font-medium">このテロップだけのスタイル</p>
 
+          {/* フォント */}
           <div className="space-y-1">
-            <label className="text-xs text-gray-400">フォント</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-400">フォント</label>
+              {segment.styleOverride?.fontFamily !== undefined ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-purple-400 bg-purple-950/60 px-1.5 py-0.5 rounded">個別</span>
+                  <button
+                    onClick={() => resetSegmentStyleKey(segment.id, 'fontFamily')}
+                    className="text-[10px] text-gray-500 hover:text-gray-300"
+                    title="グローバル設定に戻す"
+                  >↺ 全体に戻す</button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-600">全体設定を使用中</span>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-1">
               {FONT_OPTIONS.map((f) => (
                 <button
@@ -158,7 +174,9 @@ function SubtitleItem({
                   onClick={() => updateSegmentStyle(segment.id, { fontFamily: f.value })}
                   className={`text-xs py-1.5 rounded border transition-colors ${
                     eff.fontFamily === f.value
-                      ? 'border-purple-500 bg-purple-950 text-white'
+                      ? segment.styleOverride?.fontFamily !== undefined
+                        ? 'border-purple-500 bg-purple-950 text-white'
+                        : 'border-blue-400/60 bg-blue-950/30 text-blue-200'
                       : 'border-gray-700 text-gray-400 hover:border-gray-600'
                   }`}
                 >{f.label}</button>
@@ -166,8 +184,22 @@ function SubtitleItem({
             </div>
           </div>
 
+          {/* 文字色 */}
           <div className="space-y-1">
-            <label className="text-xs text-gray-400">文字色</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-400">文字色</label>
+              {segment.styleOverride?.textColor !== undefined ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-purple-400 bg-purple-950/60 px-1.5 py-0.5 rounded">個別</span>
+                  <button
+                    onClick={() => resetSegmentStyleKey(segment.id, 'textColor')}
+                    className="text-[10px] text-gray-500 hover:text-gray-300"
+                  >↺ 全体に戻す</button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-600">全体設定を使用中</span>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -175,32 +207,73 @@ function SubtitleItem({
                 onChange={(e) => updateSegmentStyle(segment.id, { textColor: e.target.value })}
                 className="w-10 h-8 rounded cursor-pointer bg-transparent border border-gray-700 p-0.5"
               />
-              <span className="text-xs text-gray-400 font-mono">{eff.textColor}</span>
+              <span className={`text-xs font-mono ${segment.styleOverride?.textColor !== undefined ? 'text-purple-300' : 'text-gray-500'}`}>
+                {eff.textColor}
+              </span>
             </div>
           </div>
 
+          {/* 文字サイズ */}
           <div className="space-y-1">
-            <label className="text-xs text-gray-400">文字サイズ（{eff.fontSizePercent}%）</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-400">
+                文字サイズ（{eff.fontSizePercent}%）
+              </label>
+              {segment.styleOverride?.fontSizePercent !== undefined ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-purple-400 bg-purple-950/60 px-1.5 py-0.5 rounded">個別</span>
+                  <button
+                    onClick={() => resetSegmentStyleKey(segment.id, 'fontSizePercent')}
+                    className="text-[10px] text-gray-500 hover:text-gray-300"
+                  >↺ 全体に戻す</button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-600">全体設定を使用中</span>
+              )}
+            </div>
             <input
               type="range" min={3} max={12} step={0.5}
               value={eff.fontSizePercent}
               onChange={(e) => updateSegmentStyle(segment.id, { fontSizePercent: Number(e.target.value) })}
-              className="w-full accent-purple-500"
+              className={`w-full ${segment.styleOverride?.fontSizePercent !== undefined ? 'accent-purple-500' : 'accent-blue-600'}`}
             />
           </div>
 
-          <div className="flex gap-2">
+          {/* 太字 */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-400">太字</label>
+              {segment.styleOverride?.bold !== undefined ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-purple-400 bg-purple-950/60 px-1.5 py-0.5 rounded">個別</span>
+                  <button
+                    onClick={() => resetSegmentStyleKey(segment.id, 'bold')}
+                    className="text-[10px] text-gray-500 hover:text-gray-300"
+                  >↺ 全体に戻す</button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-600">全体設定を使用中</span>
+              )}
+            </div>
             <button
               onClick={() => updateSegmentStyle(segment.id, { bold: !eff.bold })}
-              className={`flex-1 text-xs py-1.5 rounded border transition-colors ${
-                eff.bold ? 'border-purple-500 bg-purple-950 text-white' : 'border-gray-700 text-gray-400'
+              className={`w-full text-xs py-1.5 rounded border transition-colors ${
+                eff.bold
+                  ? segment.styleOverride?.bold !== undefined
+                    ? 'border-purple-500 bg-purple-950 text-white'
+                    : 'border-blue-400/60 bg-blue-950/30 text-blue-200'
+                  : 'border-gray-700 text-gray-400 hover:border-gray-600'
               }`}
             >太字 {eff.bold ? 'ON' : 'OFF'}</button>
+          </div>
+
+          {/* 全項目リセット（個別設定がある場合のみ表示） */}
+          {hasOverride && (
             <button
               onClick={() => updateSegmentStyle(segment.id, null)}
-              className="flex-1 text-xs py-1.5 rounded border border-gray-700 text-red-400 hover:text-red-300"
-            >全体設定に戻す</button>
-          </div>
+              className="w-full text-xs py-1.5 rounded border border-red-900/60 text-red-400 hover:text-red-300 hover:border-red-800 transition-colors"
+            >すべての個別設定を全体に戻す</button>
+          )}
 
           {/* インラインランの一覧 */}
           {(segment.styleRuns?.length ?? 0) > 0 && (

@@ -56,6 +56,8 @@ interface EditorState {
   setOutputSettings: (patch: Partial<OutputSettings>) => void
   updateSegment: (id: string, patch: Partial<SubtitleSegment>) => void
   updateSegmentStyle: (id: string, patch: Partial<SubtitleStyle> | null) => void
+  resetSegmentStyleKey: (id: string, key: keyof SubtitleStyle) => void
+  clearAllSegmentStyleOverrides: () => void
   updateSegmentRuns: (id: string, runs: StyleRun[]) => void
   deleteSegment: (id: string) => void
   addSegment: (segment: SubtitleSegment) => void
@@ -118,6 +120,19 @@ export const useEditorStore = create<EditorState>((set) => ({
           ? { ...seg, styleOverride: patch === null ? undefined : { ...seg.styleOverride, ...patch } }
           : seg
       ),
+    })),
+  resetSegmentStyleKey: (id, key) =>
+    set((s) => ({
+      segments: s.segments.map((seg) => {
+        if (seg.id !== id || !seg.styleOverride) return seg
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { [key]: _removed, ...rest } = seg.styleOverride
+        return { ...seg, styleOverride: Object.keys(rest).length ? rest : undefined }
+      }),
+    })),
+  clearAllSegmentStyleOverrides: () =>
+    set((s) => ({
+      segments: s.segments.map(({ styleOverride: _ov, ...rest }) => rest),
     })),
   updateSegmentRuns: (id, runs) =>
     set((s) => ({
