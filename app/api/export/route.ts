@@ -7,6 +7,7 @@ import { segmentsToAss } from '@/lib/subtitle-parser'
 import {
   SubtitleSegment,
   SubtitleStyle,
+  TrimRange,
   DEFAULT_SUBTITLE_STYLE,
   OutputSettings,
   DEFAULT_OUTPUT_SETTINGS,
@@ -15,6 +16,37 @@ import {
 export const runtime = 'nodejs'
 export const maxDuration = 600
 
+/**
+ * 複数保持区間に合わせて字幕タイムスタンプを再マップ。
+ * 区間ごとに出力上の開始オフセットを計算し、各字幕を適切な時刻に移動する。
+ */
+function remapSegmentsForRanges(
+  segments: SubtitleSegment[],
+  ranges: TrimRange[]
+): SubtitleSegment[] {
+  if (ranges.length === 0) return segments
+
+  // 各区間の出力開始時刻（秒）
+  const offsets: number[] = []
+  let acc = 0
+  for (const r of ranges) {
+    offsets.push(acc)
+    acc += r.end - r.start
+  }
+
+  const result: SubtitleSegment[] = []
+  for (const seg of segments) {
+    for (let i = 0; i < ranges.length; i++) {
+      const r = ranges[i]
+      if (seg.endTime <= r.start || seg.startTime >= r.end) continue
+      const outStart = offsets[i] + Math.max(0, seg.startTime - r.start)
+      const outEnd = offsets[i] + Math.min(r.end, seg.endTime) - r.start
+      result.push({ ...seg, id: `${seg.id}-r${i}`, startTime: outStart, endTime: outEnd })
+    }
+  }
+  return result
+}
+
 export async function POST(req: NextRequest) {
   try {
     const {
@@ -22,13 +54,13 @@ export async function POST(req: NextRequest) {
       segments,
       style,
       output,
-      trim,
+      trimRanges,
     }: {
       sessionId: string
       segments: SubtitleSegment[]
       style?: SubtitleStyle
       output?: OutputSettings
-      trim?: { start: number; end: number }
+      trimRanges?: TrimRange[]
     } = await req.json()
 
     if (!sessionId) {
@@ -40,27 +72,18 @@ export async function POST(req: NextRequest) {
     const assPath = path.join(sessionDir, 'subtitles.ass')
     const outputPath = path.join(os.tmpdir(), `output-${sessionId}.mp4`)
 
-    // 動画の解像度を取得し、出力設定からターゲット解像度を計算
-    const { burnSubtitles, getVideoDimensions, computeTargetDimensions } = await import(
+    const { burnSubtitlesMultiRange, getVideoDimensions, computeTargetDimensions } = await import(
       '@/lib/ffmpeg-server'
     )
-    const { width, height, fps } = await getVideoDimensions(inputPath)
+    const { width, height, fps, hasAudio } = await getVideoDimensions(inputPath)
     const outputSettings = output ?? DEFAULT_OUTPUT_SETTINGS
     const target = computeTargetDimensions(outputSettings.aspect, width, height)
 
-    // トリミング指定があれば、区間に重なる字幕だけ残し、時刻を区間先頭基準にシフト
-    const useTrim = trim && trim.end > trim.start
-    const exportSegments: SubtitleSegment[] = useTrim
-      ? segments
-          .filter((seg) => seg.endTime > trim!.start && seg.startTime < trim!.end)
-          .map((seg) => ({
-            ...seg,
-            startTime: Math.max(0, seg.startTime - trim!.start),
-            endTime: Math.min(trim!.end, seg.endTime) - trim!.start,
-          }))
+    const activeRanges = (trimRanges ?? []).filter((r) => r.end > r.start)
+    const exportSegments = activeRanges.length > 0
+      ? remapSegmentsForRanges(segments, activeRanges)
       : segments
 
-    // 字幕は整形後のフレームに描画されるため、ASS の解像度もターゲットに合わせる
     const assDims = target ?? { width, height }
     const subtitleStyle = style ?? DEFAULT_SUBTITLE_STYLE
     fs.writeFileSync(
@@ -69,19 +92,18 @@ export async function POST(req: NextRequest) {
       'utf-8'
     )
 
-    // FFmpeg で字幕焼き込み（必要ならアスペクト比整形・トリミングも）
-    await burnSubtitles(
+    await burnSubtitlesMultiRange(
       inputPath,
       assPath,
       outputPath,
+      activeRanges,
       target ? { ...target, fit: outputSettings.fit } : undefined,
-      useTrim ? trim : undefined,
-      fps
+      fps,
+      hasAudio
     )
 
-    // ファイルをストリームで返す
     const fileBuffer = fs.readFileSync(outputPath)
-    fs.unlinkSync(outputPath) // 一時ファイル削除
+    fs.unlinkSync(outputPath)
 
     return new NextResponse(fileBuffer, {
       headers: {

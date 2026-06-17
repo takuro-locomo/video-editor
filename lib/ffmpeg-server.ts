@@ -1,5 +1,5 @@
 import ffmpeg from 'fluent-ffmpeg'
-import { OutputAspect, OutputFit } from '@/types/subtitle'
+import { OutputAspect, OutputFit, TrimRange } from '@/types/subtitle'
 
 /** アスペクト比と元動画サイズから出力解像度を決定（original は null） */
 export function computeTargetDimensions(
@@ -38,10 +38,10 @@ function parseFrameRate(rate?: string): number {
   return Math.min(Math.max(Math.round(fps * 1000) / 1000, 1), 60)
 }
 
-/** 動画の解像度(幅・高さ)とフレームレートを取得 */
+/** 動画の解像度(幅・高さ)とフレームレート、音声有無を取得 */
 export function getVideoDimensions(
   inputPath: string
-): Promise<{ width: number; height: number; fps: number }> {
+): Promise<{ width: number; height: number; fps: number; hasAudio: boolean }> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(inputPath, (err, data) => {
       if (err) return reject(err)
@@ -49,11 +49,12 @@ export function getVideoDimensions(
       if (!stream || !stream.width || !stream.height) {
         return reject(new Error('動画の解像度を取得できませんでした'))
       }
+      const hasAudio = data.streams.some((s) => s.codec_type === 'audio')
       // avg_frame_rate を優先（VFRでも平均値が取れる）。無効なら r_frame_rate にフォールバック
       const avg = stream.avg_frame_rate && stream.avg_frame_rate !== '0/0'
         ? stream.avg_frame_rate
         : stream.r_frame_rate
-      resolve({ width: stream.width, height: stream.height, fps: parseFrameRate(avg) })
+      resolve({ width: stream.width, height: stream.height, fps: parseFrameRate(avg), hasAudio })
     })
   })
 }
@@ -123,6 +124,96 @@ export function burnSubtitles(
         '-b:a', '192k',
         '-movflags', '+faststart',  // iPhone での読み込み/シークを安定化
       ])
+      .on('end', () => resolve())
+      .on('error', reject)
+      .save(outputPath)
+  })
+}
+
+/**
+ * 複数トリム区間を concat して字幕を焼き込む。
+ * 0区間: トリムなし（burnSubtitles に委譲）
+ * 1区間: seekInput アプローチ（burnSubtitles に委譲）
+ * 2区間以上: FFmpeg complexFilter で trim→concat→字幕
+ */
+export function burnSubtitlesMultiRange(
+  inputPath: string,
+  subtitlePath: string,
+  outputPath: string,
+  ranges: TrimRange[],
+  format?: { width: number; height: number; fit: OutputFit },
+  fps = 30,
+  hasAudio = true
+): Promise<void> {
+  if (ranges.length === 0) {
+    return burnSubtitles(inputPath, subtitlePath, outputPath, format, undefined, fps)
+  }
+  if (ranges.length === 1) {
+    return burnSubtitles(inputPath, subtitlePath, outputPath, format, ranges[0], fps)
+  }
+
+  const escapedPath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')
+  const n = ranges.length
+  const filterParts: string[] = []
+
+  // 入力ストリームを n 分割
+  const vSplitOut = ranges.map((_, i) => `[vin${i}]`).join('')
+  filterParts.push(`[0:v]split=${n}${vSplitOut}`)
+  if (hasAudio) {
+    const aSplitOut = ranges.map((_, i) => `[ain${i}]`).join('')
+    filterParts.push(`[0:a]asplit=${n}${aSplitOut}`)
+  }
+
+  // 各区間のトリム
+  const vLabels: string[] = []
+  const aLabels: string[] = []
+  for (let i = 0; i < n; i++) {
+    const { start, end } = ranges[i]
+    filterParts.push(`[vin${i}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[v${i}]`)
+    vLabels.push(`[v${i}]`)
+    if (hasAudio) {
+      filterParts.push(`[ain${i}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS[a${i}]`)
+      aLabels.push(`[a${i}]`)
+    }
+  }
+
+  // 映像 concat
+  filterParts.push(`${vLabels.join('')}concat=n=${n}:v=1:a=0[vconcated]`)
+  if (hasAudio) {
+    filterParts.push(`${aLabels.join('')}concat=n=${n}:v=0:a=1[aout]`)
+  }
+
+  // concat後に fps・整形・字幕を適用
+  const postFilters: string[] = [`fps=${fps}`]
+  if (format) {
+    const { width: w, height: h, fit } = format
+    if (fit === 'pad') {
+      postFilters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease`)
+      postFilters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`)
+    } else {
+      postFilters.push(`scale=${w}:${h}:force_original_aspect_ratio=increase`)
+      postFilters.push(`crop=${w}:${h}`)
+    }
+  }
+  postFilters.push(`subtitles='${escapedPath}'`)
+  filterParts.push(`[vconcated]${postFilters.join(',')}[vout]`)
+
+  const outputLabels = hasAudio ? ['vout', 'aout'] : ['vout']
+  const opts = [
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '20',
+    '-pix_fmt', 'yuv420p',
+    '-profile:v', 'high',
+    '-r', String(fps),
+    '-movflags', '+faststart',
+  ]
+  if (hasAudio) opts.push('-c:a', 'aac', '-b:a', '192k')
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .complexFilter(filterParts, outputLabels)
+      .outputOptions(opts)
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)

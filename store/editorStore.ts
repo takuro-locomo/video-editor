@@ -3,6 +3,7 @@ import {
   SubtitleSegment,
   SubtitleStyle,
   StyleRun,
+  TrimRange,
   DEFAULT_SUBTITLE_STYLE,
   OutputSettings,
   DEFAULT_OUTPUT_SETTINGS,
@@ -15,8 +16,7 @@ function newSegmentId(): string {
 type HistoryEntry = {
   segments: SubtitleSegment[]
   subtitleStyle: SubtitleStyle
-  trimStart: number | null
-  trimEnd: number | null
+  trimRanges: TrimRange[]
 }
 
 interface EditorState {
@@ -37,9 +37,8 @@ interface EditorState {
   subtitleStyle: SubtitleStyle
   outputSettings: OutputSettings
 
-  // トリミング（1区間。null=未設定で全体を使用）
-  trimStart: number | null
-  trimEnd: number | null
+  // トリミング（複数区間。空配列=全体を使用）
+  trimRanges: TrimRange[]
 
   // 履歴（Undo/Redo）
   _past: HistoryEntry[]
@@ -75,9 +74,10 @@ interface EditorState {
   addSegmentAt: (time: number) => string
   splitSegment: (id: string, atTime: number) => void
   mergeWithNext: (id: string) => void
-  setTrimStart: (time: number | null) => void
-  setTrimEnd: (time: number | null) => void
-  resetTrim: () => void
+  addTrimRange: (start: number, end: number) => void
+  updateTrimRange: (index: number, patch: Partial<TrimRange>) => void
+  deleteTrimRange: (index: number) => void
+  clearTrimRanges: () => void
   setCurrentTime: (time: number) => void
   setIsPlaying: (playing: boolean) => void
   setActiveTab: (tab: 'video' | 'subtitles' | 'settings') => void
@@ -94,8 +94,7 @@ function snap(s: EditorState): HistoryEntry {
   return {
     segments: s.segments,
     subtitleStyle: s.subtitleStyle,
-    trimStart: s.trimStart,
-    trimEnd: s.trimEnd,
+    trimRanges: s.trimRanges,
   }
 }
 
@@ -115,8 +114,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   segments: [],
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   outputSettings: DEFAULT_OUTPUT_SETTINGS,
-  trimStart: null,
-  trimEnd: null,
+  trimRanges: [],
   _past: [],
   _future: [],
   currentTime: 0,
@@ -127,7 +125,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   transcribeProgress: '',
 
   setVideo: (sessionId, videoUrl, filename) =>
-    set({ sessionId, videoUrl, filename, segments: [], trimStart: null, trimEnd: null, _past: [], _future: [] }),
+    set({ sessionId, videoUrl, filename, segments: [], trimRanges: [], _past: [], _future: [] }),
   setVideoUrl: (videoUrl) => set({ videoUrl }),
   setDuration: (duration) => set({ duration }),
   setNaturalSize: (naturalWidth, naturalHeight) => set({ naturalWidth, naturalHeight }),
@@ -233,9 +231,25 @@ export const useEditorStore = create<EditorState>((set) => ({
           .sort((a, b) => a.startTime - b.startTime),
       }
     }),
-  setTrimStart: (trimStart) => set((s) => ({ ...withHist(s), trimStart })),
-  setTrimEnd: (trimEnd) => set((s) => ({ ...withHist(s), trimEnd })),
-  resetTrim: () => set((s) => ({ ...withHist(s), trimStart: null, trimEnd: null })),
+  addTrimRange: (start, end) =>
+    set((s) => ({
+      ...withHist(s),
+      trimRanges: [...s.trimRanges, { start, end }].sort((a, b) => a.start - b.start),
+    })),
+  updateTrimRange: (index, patch) =>
+    set((s) => ({
+      ...withHist(s),
+      trimRanges: s.trimRanges
+        .map((r, i) => (i === index ? { ...r, ...patch } : r))
+        .sort((a, b) => a.start - b.start),
+    })),
+  deleteTrimRange: (index) =>
+    set((s) => ({
+      ...withHist(s),
+      trimRanges: s.trimRanges.filter((_, i) => i !== index),
+    })),
+  clearTrimRanges: () =>
+    set((s) => ({ ...withHist(s), trimRanges: [] })),
   setCurrentTime: (currentTime) => set({ currentTime }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
   setActiveTab: (activeTab) => set({ activeTab }),
@@ -270,8 +284,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       filename: null,
       duration: 0,
       segments: [],
-      trimStart: null,
-      trimEnd: null,
+      trimRanges: [],
       _past: [],
       _future: [],
       currentTime: 0,

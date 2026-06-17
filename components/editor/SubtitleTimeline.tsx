@@ -13,12 +13,11 @@ type DragInfo = {
 
 export function SubtitleTimeline() {
   const {
-    segments, duration, currentTime, trimStart, trimEnd,
+    segments, duration, currentTime, trimRanges,
     updateSegment, saveToHistory,
   } = useEditorStore()
 
   const containerRef = useRef<HTMLDivElement>(null)
-  // keep drag state in both ref (for event handlers) and state (for re-render)
   const dragRef = useRef<DragInfo | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
 
@@ -72,6 +71,24 @@ export function SubtitleTimeline() {
   const pps = getPps()
   const totalPx = Math.max(duration * pps, containerRef.current?.clientWidth ?? 300)
 
+  // 「削除される」区間（trimRangesに含まれない部分）をシェーディング
+  const darkAreas: { left: number; right: number }[] = []
+  if (trimRanges.length > 0) {
+    if (trimRanges[0].start > 0) {
+      darkAreas.push({ left: 0, right: totalPx - trimRanges[0].start * pps })
+    }
+    for (let i = 1; i < trimRanges.length; i++) {
+      darkAreas.push({
+        left: trimRanges[i - 1].end * pps,
+        right: totalPx - trimRanges[i].start * pps,
+      })
+    }
+    const last = trimRanges[trimRanges.length - 1]
+    if (last.end < duration) {
+      darkAreas.push({ left: last.end * pps, right: 0 })
+    }
+  }
+
   return (
     <div
       ref={containerRef}
@@ -80,19 +97,14 @@ export function SubtitleTimeline() {
       onPointerUp={onPointerUp}
     >
       <div className="absolute inset-y-0" style={{ width: totalPx }}>
-        {/* trim shading */}
-        {trimStart !== null && trimStart > 0 && (
+        {/* trim shading for parts NOT in any keep-range */}
+        {darkAreas.map((area, i) => (
           <div
+            key={i}
             className="absolute inset-y-0 bg-black/50 pointer-events-none"
-            style={{ left: 0, width: trimStart * pps }}
+            style={{ left: area.left, right: area.right }}
           />
-        )}
-        {trimEnd !== null && trimEnd < duration && (
-          <div
-            className="absolute inset-y-0 bg-black/50 pointer-events-none"
-            style={{ left: trimEnd * pps, right: 0 }}
-          />
-        )}
+        ))}
 
         {/* segment bars */}
         {segments.map((seg) => {

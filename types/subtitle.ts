@@ -1,3 +1,9 @@
+/** 動画の「保持する」区間（秒）。複数指定で複数区間トリミング */
+export interface TrimRange {
+  start: number
+  end: number
+}
+
 /** テキスト内の一部分に適用するインラインスタイル */
 export interface StyleRun {
   from: number            // 文字インデックス（inclusive）

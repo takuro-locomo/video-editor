@@ -2,7 +2,7 @@
 import { useEditorStore } from '@/store/editorStore'
 
 export function useExport() {
-  const { sessionId, segments, subtitleStyle, outputSettings, trimStart, trimEnd, setIsExporting } =
+  const { sessionId, segments, subtitleStyle, outputSettings, trimRanges, setIsExporting } =
     useEditorStore()
 
   const exportVideo = async () => {
@@ -10,6 +10,7 @@ export function useExport() {
     setIsExporting(true)
 
     try {
+      const activeRanges = trimRanges.filter((r) => r.end > r.start)
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -18,10 +19,7 @@ export function useExport() {
           segments,
           style: subtitleStyle,
           output: outputSettings,
-          trim:
-            trimStart !== null && trimEnd !== null && trimEnd > trimStart
-              ? { start: trimStart, end: trimEnd }
-              : undefined,
+          trimRanges: activeRanges.length > 0 ? activeRanges : undefined,
         }),
       })
 
