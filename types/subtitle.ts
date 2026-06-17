@@ -1,8 +1,18 @@
+/** テキスト内の一部分に適用するインラインスタイル */
+export interface StyleRun {
+  from: number            // 文字インデックス（inclusive）
+  to: number              // 文字インデックス（exclusive）
+  sizeMultiplier?: number // 例: 1.5 → セグメント基準サイズの150%
+  color?: string          // #RRGGBB
+}
+
 export interface SubtitleSegment {
   id: string
   startTime: number // 秒
   endTime: number   // 秒
   text: string
+  styleOverride?: Partial<SubtitleStyle> // このセグメントだけのスタイル上書き
+  styleRuns?: StyleRun[]                 // 文字単位のインラインスタイル
 }
 
 export type SubtitleFontFamily = 'gothic' | 'mincho' | 'notosans'

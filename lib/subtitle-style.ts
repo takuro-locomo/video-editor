@@ -1,4 +1,19 @@
-import { SubtitleFontFamily } from '@/types/subtitle'
+import { SubtitleFontFamily, SubtitleStyle } from '@/types/subtitle'
+
+/** グローバルスタイルとセグメント個別上書きをマージ */
+export function mergeStyle(base: SubtitleStyle, override?: Partial<SubtitleStyle>): SubtitleStyle {
+  return override ? { ...base, ...override } : base
+}
+
+/** #RRGGBB → ASS インライン \c タグ用カラー &HBBGGRR& */
+export function hexToAssColorInline(hex: string): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  const toHex = (n: number) => n.toString(16).padStart(2, '0').toUpperCase()
+  return `&H${toHex(b)}${toHex(g)}${toHex(r)}&`
+}
 
 /** プレビュー(CSS)用のフォントスタック */
 export function fontFamilyToCss(family: SubtitleFontFamily): string {

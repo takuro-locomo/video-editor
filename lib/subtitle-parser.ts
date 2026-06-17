@@ -1,6 +1,13 @@
-import { SubtitleSegment, SubtitleStyle } from '@/types/subtitle'
+import { SubtitleSegment, SubtitleStyle, StyleRun } from '@/types/subtitle'
 import { secondsToSrtTime } from './time-utils'
-import { fontFamilyToAss, hexToAssColor, wrapText, computeEffectiveMaxChars } from './subtitle-style'
+import {
+  fontFamilyToAss,
+  hexToAssColor,
+  hexToAssColorInline,
+  wrapText,
+  computeEffectiveMaxChars,
+  mergeStyle,
+} from './subtitle-style'
 
 /** SubtitleSegment[] を SRT 文字列に変換 */
 export function segmentsToSrt(segments: SubtitleSegment[]): string {
@@ -27,6 +34,66 @@ function escapeAssText(text: string): string {
   return text
     .replace(/[{}]/g, (c) => (c === '{' ? '｛' : '｝'))
     .replace(/\r?\n/g, '\\N')
+}
+
+/**
+ * 折り返し後テキストの各文字が、元テキストの何文字目に対応するかのマッピングを構築。
+ * wrapText は \n を挿入するだけで文字を削除/並べ替えないことを前提とする。
+ */
+function buildOrigToWrappedMap(orig: string, wrapped: string): number[] {
+  const map: number[] = new Array(orig.length + 1).fill(wrapped.length)
+  let wi = 0
+  for (let oi = 0; oi <= orig.length; oi++) {
+    while (wi < wrapped.length && wrapped[wi] === '\n') wi++
+    map[oi] = wi
+    if (oi < orig.length) wi++
+  }
+  return map
+}
+
+/**
+ * スタイルランを考慮した ASS テキストを生成。
+ * 折り返し済みテキストの適切な位置に \fs・\c タグを挿入し、ラン終了後はベースに戻す。
+ */
+function applyRunsToAss(
+  orig: string,
+  runs: StyleRun[],
+  baseFontPx: number,
+  baseColor: string,
+  effectiveMaxChars: number
+): string {
+  const wrapped = wrapText(orig, effectiveMaxChars)
+  const validRuns = runs
+    .filter((r) => r.from < r.to && r.from >= 0 && r.to <= orig.length)
+    .sort((a, b) => a.from - b.from)
+
+  if (!validRuns.length) return escapeAssText(wrapped)
+
+  const map = buildOrigToWrappedMap(orig, wrapped)
+  const wChars = [...wrapped]
+
+  const escapeContent = (s: string) =>
+    s.replace(/[{}]/g, (c) => (c === '{' ? '｛' : '｝')).replace(/\n/g, '\\N')
+
+  let result = ''
+  let wi = 0
+  for (const run of validRuns) {
+    const wFrom = map[run.from]
+    const wTo = map[Math.min(run.to, orig.length)]
+    result += escapeContent(wChars.slice(wi, wFrom).join(''))
+    const open: string[] = []
+    if (run.sizeMultiplier) open.push(`\\fs${Math.round(baseFontPx * run.sizeMultiplier)}`)
+    if (run.color) open.push(`\\c${hexToAssColorInline(run.color)}`)
+    if (open.length) result += `{${open.join('')}}`
+    result += escapeContent(wChars.slice(wFrom, wTo).join(''))
+    const close: string[] = []
+    if (run.sizeMultiplier) close.push(`\\fs${baseFontPx}`)
+    if (run.color) close.push(`\\c${hexToAssColorInline(baseColor)}`)
+    if (close.length) result += `{${close.join('')}}`
+    wi = wTo
+  }
+  result += escapeContent(wChars.slice(wi).join(''))
+  return result
 }
 
 /** 位置 → ASS の Alignment(numpad)。中央寄せ: top=8, middle=5, bottom=2 */
@@ -62,16 +129,6 @@ export function segmentsToAss(
   const marginV = Math.round(height * 0.06)
   const marginLR = Math.round(width * 0.04)
 
-  // 自動折り返し: フレーム幅とフォントサイズから1行に収まる文字数を求める。
-  // libass は日本語(スペース無し)を折り返せないことがあるため、こちらで明示的に改行する。
-  // プレビュー(SubtitleOverlay)と同じ共通ロジックを使い、編集中の見た目と一致させる。
-  const effectiveMaxChars = computeEffectiveMaxChars(
-    width,
-    height,
-    style.fontSizePercent,
-    style.maxCharsPerLine
-  )
-
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -89,10 +146,30 @@ export function segmentsToAss(
   ].join('\n')
 
   const events = segments
-    .map(
-      (seg) =>
-        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(wrapText(seg.text, effectiveMaxChars))}`
-    )
+    .map((seg) => {
+      // セグメント個別スタイルをグローバルとマージ
+      const eff = mergeStyle(style, seg.styleOverride)
+      const segFontPx = Math.round((eff.fontSizePercent / 100) * height)
+      const segMaxChars = computeEffectiveMaxChars(width, height, eff.fontSizePercent, eff.maxCharsPerLine)
+
+      // 個別上書きがある場合、行頭にインライン ASS タグを追加
+      const overrideTags: string[] = []
+      if (seg.styleOverride) {
+        const ov = seg.styleOverride
+        if (ov.fontFamily !== undefined) overrideTags.push(`\\fn${fontFamilyToAss(ov.fontFamily)}`)
+        if (ov.fontSizePercent !== undefined) overrideTags.push(`\\fs${segFontPx}`)
+        if (ov.textColor !== undefined) overrideTags.push(`\\c${hexToAssColorInline(ov.textColor)}`)
+        if (ov.bold !== undefined) overrideTags.push(`\\b${ov.bold ? 1 : 0}`)
+      }
+      const prefix = overrideTags.length ? `{${overrideTags.join('')}}` : ''
+
+      // インラインスタイルランがあれば run タグ込みで生成
+      const textPart = seg.styleRuns?.length
+        ? applyRunsToAss(seg.text, seg.styleRuns, segFontPx, eff.textColor, segMaxChars)
+        : escapeAssText(wrapText(seg.text, segMaxChars))
+
+      return `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${prefix}${textPart}`
+    })
     .join('\n')
 
   return `${header}\n${events}\n`
