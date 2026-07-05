@@ -1,54 +1,71 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { useEditorStore } from '@/store/editorStore'
 import { useTranscribe } from '@/hooks/useTranscribe'
 import { useExport } from '@/hooks/useExport'
 
 export function Toolbar() {
-  const { filename, segments, isTranscribing, isExporting, sessionId, replaceVideo } =
+  const { filename, segments, isTranscribing, isExporting, sessionId, setVideoUrl, undo, redo, _past, _future } =
     useEditorStore()
   const { transcribe } = useTranscribe()
   const { exportVideo } = useExport()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [isAppending, setIsAppending] = useState(false)
 
-  const appendVideos = async (list: FileList) => {
-    if (!sessionId) return
-    const files = Array.from(list).filter((f) => f.type.startsWith('video/'))
-    if (files.length === 0) return
+  const canUndo = _past.length > 0
+  const canRedo = _future.length > 0
+
+  const [isAppending, setIsAppending] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [undo, redo])
+
+  const handleAppendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !sessionId) return
+    e.target.value = ''
+
     // クラウド未ダウンロード等で読み取れないファイルを事前に検出
     const { checkFileReadable } = await import('@/lib/file-utils')
-    for (const f of files) {
-      const problem = await checkFileReadable(f)
-      if (problem) {
-        alert(problem)
+    const problem = await checkFileReadable(file)
+    if (problem) {
+      alert(problem)
+      return
+    }
+
+    setIsAppending(true)
+    try {
+      const form = new FormData()
+      form.append('sessionId', sessionId)
+      form.append('video', file)
+
+      const res = await fetch('/api/append', { method: 'POST', body: form })
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'Unknown error' }))
+        alert(`動画追加に失敗しました: ${error}`)
         return
       }
-    }
-    setIsAppending(true)
 
-    try {
-      const fd = new FormData()
-      fd.append('sessionId', sessionId)
-      files.forEach((f) => fd.append('videos', f))
-      const res = await fetch('/api/append', { method: 'POST', body: fd })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.error ?? 'Append failed')
-      }
       // 末尾への追加なので既存の字幕タイミングはそのまま有効
       // （URLにv=を付けて動画プレーヤーに再読み込みさせる）
-      replaceVideo(`/api/video/${sessionId}?v=${Date.now()}`, '結合動画.mp4')
+      setVideoUrl(`/api/video/${sessionId}?v=${Date.now()}`)
     } catch (err) {
-      console.error(err)
-      alert(`動画の追加に失敗しました\n${err instanceof Error ? err.message : ''}`)
+      alert(`動画追加エラー: ${err}`)
     } finally {
       setIsAppending(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
-
-  const busy = isTranscribing || isExporting || isAppending
 
   return (
     <div className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800">
@@ -62,31 +79,51 @@ export function Toolbar() {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Undo / Redo */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="元に戻す (Ctrl+Z)"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors text-base"
+          >
+            ↩
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            title="やり直し (Ctrl+Y)"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors text-base"
+          >
+            ↪
+          </button>
+        </div>
+
+        {/* 動画追加 */}
         <input
           ref={fileInputRef}
           type="file"
           accept="video/*"
-          multiple
           className="hidden"
-          onChange={(e) => e.target.files && appendVideos(e.target.files)}
+          onChange={handleAppendFile}
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={!sessionId || busy}
-          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded-lg transition-colors"
-          title="選択した動画を現在の動画の末尾に結合します"
+          disabled={!sessionId || isAppending || isTranscribing || isExporting}
+          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-3 py-2 rounded-lg transition-colors"
+          title="末尾に別の動画を追加して結合"
         >
           {isAppending ? (
             <>
               <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               結合中...
             </>
-          ) : '➕ 動画を追加'}
+          ) : '＋ 動画を追加'}
         </button>
 
         <button
           onClick={transcribe}
-          disabled={!sessionId || busy}
+          disabled={!sessionId || isTranscribing || isExporting}
           className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded-lg transition-colors"
         >
           {isTranscribing ? (
@@ -99,7 +136,7 @@ export function Toolbar() {
 
         <button
           onClick={exportVideo}
-          disabled={segments.length === 0 || busy}
+          disabled={segments.length === 0 || isExporting || isTranscribing}
           className="flex items-center gap-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-2 rounded-lg transition-colors"
         >
           {isExporting ? (

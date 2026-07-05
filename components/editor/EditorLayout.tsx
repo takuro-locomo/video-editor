@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
 import { VideoPlayer } from './VideoPlayer'
 import { TrimControls } from './TrimControls'
+import { SubtitleTimeline } from './SubtitleTimeline'
 import { Toolbar } from './Toolbar'
 import { SubtitleEditor } from '@/components/subtitle/SubtitleEditor'
 import { SubtitleStyleSettings } from '@/components/subtitle/SubtitleStyleSettings'
@@ -23,6 +24,7 @@ export function EditorLayout() {
           md:flex ${activeTab === 'video' ? 'flex' : 'hidden md:flex'}`}>
           <VideoPlayer />
           <TrimControls />
+          <SubtitleTimeline />
         </div>
 
         {/* 区切り線（PCのみ） */}

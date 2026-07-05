@@ -1,10 +1,8 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
-import { SubtitleSegment } from '@/types/subtitle'
-import { fontFamilyToCss, hexToRgba } from '@/lib/subtitle-style'
-import { parseRichText, wrapSpans, splitSpansByLine } from '@/lib/rich-text'
-import { RichText } from './RichText'
+import { SubtitleSegment, StyleRun } from '@/types/subtitle'
+import { fontFamilyToCss, hexToRgba, wrapText, computeEffectiveMaxChars, mergeStyle } from '@/lib/subtitle-style'
 
 function findActiveSegment(segments: SubtitleSegment[], currentTime: number) {
   return segments.find(
@@ -18,16 +16,68 @@ const POSITION_CLASS = {
   bottom: 'items-end pb-[6%]',
 } as const
 
+type Piece = { text: string; run?: StyleRun }
+
+/**
+ * スタイルランを考慮してテキストを折り返し、行ごとのスパン配列に分割する。
+ * 書き出し(ASS)と同じく行単位で描画するため（背景ボックスを行ごとに独立させる）。
+ */
+function buildLines(
+  text: string,
+  runs: StyleRun[] | undefined,
+  effectiveMaxChars: number
+): Piece[][] {
+  const wrapped = wrapText(text, effectiveMaxChars)
+
+  // 元テキスト→折り返し済みテキストのインデックスマッピング
+  const validRuns = (runs ?? [])
+    .filter((r) => r.from < r.to && r.from >= 0 && r.to <= text.length)
+    .sort((a, b) => a.from - b.from)
+
+  const pieces: Piece[] = []
+  if (!validRuns.length) {
+    pieces.push({ text: wrapped })
+  } else {
+    const map: number[] = new Array(text.length + 1).fill(wrapped.length)
+    let wi = 0
+    for (let oi = 0; oi <= text.length; oi++) {
+      while (wi < wrapped.length && wrapped[wi] === '\n') wi++
+      map[oi] = wi
+      if (oi < text.length) wi++
+    }
+    const wChars = [...wrapped]
+    let pos = 0
+    for (const run of validRuns) {
+      const wFrom = map[run.from]
+      const wTo = map[Math.min(run.to, text.length)]
+      if (wFrom > pos) pieces.push({ text: wChars.slice(pos, wFrom).join('') })
+      pieces.push({ text: wChars.slice(wFrom, wTo).join(''), run })
+      pos = wTo
+    }
+    if (pos < wChars.length) pieces.push({ text: wChars.slice(pos).join('') })
+  }
+
+  // 改行で行ごとに分割（ランの装飾は行をまたいでも維持）
+  const lines: Piece[][] = [[]]
+  for (const p of pieces) {
+    const parts = p.text.split('\n')
+    parts.forEach((part, i) => {
+      if (i > 0) lines.push([])
+      if (part) lines[lines.length - 1].push({ text: part, run: p.run })
+    })
+  }
+  return lines.filter((line) => line.length > 0)
+}
+
 export function SubtitleOverlay() {
   const { segments, currentTime, subtitleStyle } = useEditorStore()
   const containerRef = useRef<HTMLDivElement>(null)
-  const [box, setBox] = useState({ width: 0, height: 0 })
+  const [box, setBox] = useState({ w: 0, h: 0 })
 
-  // フレームの実寸を測ってフォントサイズ・改行位置を出力と揃える
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const update = () => setBox({ width: el.clientWidth, height: el.clientHeight })
+    const update = () => setBox({ w: el.clientWidth, h: el.clientHeight })
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
@@ -35,23 +85,13 @@ export function SubtitleOverlay() {
   }, [])
 
   const active = findActiveSegment(segments, currentTime)
-  // 個別デザインがあれば全体設定に上書きマージ
-  const s = { ...subtitleStyle, ...active?.styleOverride }
-  const fontSize = (box.height * s.fontSizePercent) / 100
 
-  // 書き出し(ASS)と同じ式で1行の文字数を計算し、同じ位置で改行する
-  const marginLR = box.width * 0.04
-  const usableWidth = box.width - marginLR * 2
-  const autoMaxChars = fontSize > 0 ? Math.max(1, Math.floor(usableWidth / fontSize)) : 0
-  const effectiveMaxChars =
-    s.maxCharsPerLine > 0 && autoMaxChars > 0
-      ? Math.min(s.maxCharsPerLine, autoMaxChars)
-      : autoMaxChars
+  // セグメント個別スタイルをグローバルとマージ
+  const s = mergeStyle(subtitleStyle, active?.styleOverride)
+  const fontSize = (box.h * s.fontSizePercent) / 100
+  const effectiveMaxChars = computeEffectiveMaxChars(box.w, box.h, s.fontSizePercent, s.maxCharsPerLine)
 
-  // 書き出しと同じく行ごとに分割して描画（背景ボックスも行単位で独立させる）
-  const lines = active
-    ? splitSpansByLine(wrapSpans(parseRichText(active.text), effectiveMaxChars))
-    : []
+  const lines = active ? buildLines(active.text, active.styleRuns, effectiveMaxChars) : []
 
   const oc = s.outlineColor ?? '#000000'
   const shadows: string[] = []
@@ -83,22 +123,26 @@ export function SubtitleOverlay() {
             textShadow: shadows.length > 0 ? shadows.join(', ') : 'none',
           }}
         >
-          {lines.map((lineSpans, i) => (
+          {lines.map((lineSpans, li) => (
             // whitespace-pre: 改行は自前計算のみ（CSSの再折返しで書き出しとズレるのを防ぐ）
-            <div key={i} className="whitespace-pre">
+            <div key={li} className="whitespace-pre">
               <span
                 style={
                   s.backgroundEnabled
                     ? {
                         backgroundColor: hexToRgba(s.backgroundColor, s.backgroundOpacity),
                         padding: '0.08em 0.25em',
-                        boxDecorationBreak: 'clone',
-                        WebkitBoxDecorationBreak: 'clone',
                       }
                     : undefined
                 }
               >
-                <RichText spans={lineSpans} />
+                {lineSpans.map((p, i) => {
+                  if (!p.run) return <span key={i}>{p.text}</span>
+                  const style: React.CSSProperties = {}
+                  if (p.run.sizeMultiplier) style.fontSize = `${fontSize * p.run.sizeMultiplier}px`
+                  if (p.run.color) style.color = p.run.color
+                  return <span key={i} style={style}>{p.text}</span>
+                })}
               </span>
             </div>
           ))}

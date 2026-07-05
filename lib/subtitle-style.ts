@@ -1,4 +1,19 @@
-import { SubtitleFontFamily } from '@/types/subtitle'
+import { SubtitleFontFamily, SubtitleStyle } from '@/types/subtitle'
+
+/** グローバルスタイルとセグメント個別上書きをマージ */
+export function mergeStyle(base: SubtitleStyle, override?: Partial<SubtitleStyle>): SubtitleStyle {
+  return override ? { ...base, ...override } : base
+}
+
+/** #RRGGBB → ASS インライン \c タグ用カラー &HBBGGRR& */
+export function hexToAssColorInline(hex: string): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  const toHex = (n: number) => n.toString(16).padStart(2, '0').toUpperCase()
+  return `&H${toHex(b)}${toHex(g)}${toHex(r)}&`
+}
 
 /** プレビュー(CSS)用のフォントスタック */
 export function fontFamilyToCss(family: SubtitleFontFamily): string {
@@ -28,6 +43,26 @@ export function fontFamilyToAss(family: SubtitleFontFamily): string {
     default:
       return 'Hiragino Sans'
   }
+}
+
+/**
+ * 出力フレーム(幅・高さ px)とスタイルから、1行に収まる実効最大文字数を求める。
+ * 書き出し(segmentsToAss)とプレビュー(SubtitleOverlay)で同じ折り返しにするための共通ロジック。
+ * 全角1文字 ≒ fontSize 幅とみなし、左右マージン(各4%)を除いた幅で計算する。
+ * ユーザー指定(userMax>0)があれば、自動計算値との小さい方を採用する。
+ */
+export function computeEffectiveMaxChars(
+  frameWidth: number,
+  frameHeight: number,
+  fontSizePercent: number,
+  userMax: number
+): number {
+  // 丸めずに比率で計算する（解像度が違ってもプレビューと書き出しで同じ結果になる）
+  const fontSize = (fontSizePercent / 100) * frameHeight
+  if (fontSize <= 0 || frameWidth <= 0) return userMax > 0 ? userMax : 0
+  const usableWidth = frameWidth - frameWidth * 0.04 * 2
+  const autoMax = Math.max(1, Math.floor(usableWidth / fontSize))
+  return userMax > 0 ? Math.min(userMax, autoMax) : autoMax
 }
 
 /**

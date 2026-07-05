@@ -2,27 +2,15 @@
 import { useEditorStore } from '@/store/editorStore'
 
 export function useExport() {
-  const {
-    sessionId,
-    segments,
-    subtitleStyle,
-    outputSettings,
-    trimStart,
-    trimEnd,
-    duration,
-    setIsExporting,
-  } = useEditorStore()
+  const { sessionId, segments, subtitleStyle, outputSettings, trimRanges, setIsExporting } =
+    useEditorStore()
 
   const exportVideo = async () => {
     if (!sessionId) return
     setIsExporting(true)
 
-    // 開始のみ・終了のみの指定でも有効にする（未指定側は 0 / 動画末尾で補完）
-    const start = trimStart ?? 0
-    const end = trimEnd ?? duration
-    const useTrim = (trimStart !== null || trimEnd !== null) && end > start
-
     try {
+      const activeRanges = trimRanges.filter((r) => r.end > r.start)
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -31,7 +19,7 @@ export function useExport() {
           segments,
           style: subtitleStyle,
           output: outputSettings,
-          trim: useTrim ? { start, end } : undefined,
+          trimRanges: activeRanges.length > 0 ? activeRanges : undefined,
         }),
       })
 

@@ -97,8 +97,18 @@ function Toggle({
 }
 
 export function SubtitleStyleSettings() {
-  const { subtitleStyle: s, setSubtitleStyle, outputSettings: o, setOutputSettings } =
-    useEditorStore()
+  const {
+    subtitleStyle: s,
+    setSubtitleStyle,
+    outputSettings: o,
+    setOutputSettings,
+    segments,
+    clearAllSegmentStyleOverrides,
+  } = useEditorStore()
+
+  const overrideCount = segments.filter(
+    (seg) => seg.styleOverride && Object.keys(seg.styleOverride).length > 0
+  ).length
 
   return (
     <div className="overflow-y-auto h-full p-4 space-y-5">
@@ -263,6 +273,26 @@ export function SubtitleStyleSettings() {
           字幕テキスト内の改行（Enter）はそのまま反映されます。
         </p>
       </Row>
+
+      {/* 全テロップの個別スタイルクリア */}
+      {overrideCount > 0 && (
+        <div className="pt-3 border-t border-gray-800">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              個別設定あり：<span className="text-purple-400">{overrideCount}件</span>
+            </p>
+            <button
+              onClick={clearAllSegmentStyleOverrides}
+              className="text-xs text-red-400 hover:text-red-300 border border-red-900/60 hover:border-red-800 rounded px-2 py-1 transition-colors"
+            >
+              全テロップをリセット
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-600 mt-1">
+            個別に変えたフォント・サイズ・色をすべて全体設定に戻します
+          </p>
+        </div>
+      )}
 
       {/* 出力設定（アスペクト比） */}
       <div className="pt-4 mt-1 border-t border-gray-800 space-y-5">

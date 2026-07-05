@@ -1,11 +1,24 @@
+/** 動画の「保持する」区間（秒）。複数指定で複数区間トリミング */
+export interface TrimRange {
+  start: number
+  end: number
+}
+
+/** テキスト内の一部分に適用するインラインスタイル */
+export interface StyleRun {
+  from: number            // 文字インデックス（inclusive）
+  to: number              // 文字インデックス（exclusive）
+  sizeMultiplier?: number // 例: 1.5 → セグメント基準サイズの150%
+  color?: string          // #RRGGBB
+}
+
 export interface SubtitleSegment {
   id: string
   startTime: number // 秒
   endTime: number   // 秒
-  // 部分装飾のインライン記法を含められる: <c=#FF0000>色</c> <s=150>サイズ%</s> <b>太字</b>
   text: string
-  // この字幕だけの個別デザイン（未設定の項目は全体設定を使う）
-  styleOverride?: Partial<SubtitleStyle>
+  styleOverride?: Partial<SubtitleStyle> // このセグメントだけのスタイル上書き
+  styleRuns?: StyleRun[]                 // 文字単位のインラインスタイル
 }
 
 export type SubtitleFontFamily = 'gothic' | 'mincho' | 'notosans' | 'maru'

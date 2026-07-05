@@ -1,7 +1,7 @@
 import ffmpeg from 'fluent-ffmpeg'
 import ffmpegPath from 'ffmpeg-static'
 import { path as ffprobePath } from '@ffprobe-installer/ffprobe'
-import { OutputAspect, OutputFit } from '@/types/subtitle'
+import { OutputAspect, OutputFit, TrimRange } from '@/types/subtitle'
 
 // システムの ffmpeg に依存せず、npm 同梱の静的バイナリ（libass入り）を使う
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath)
@@ -36,10 +36,18 @@ export function computeTargetDimensions(
   return { width: width - (width % 2), height: height - (height % 2) }
 }
 
-/** 動画の解像度(幅・高さ)を取得 */
+/** "30000/1001" のような分数表記のフレームレートを数値(fps)に変換。妥当域(1〜60)に丸める */
+function parseFrameRate(rate?: string): number {
+  if (!rate) return 30
+  const [n, d] = rate.split('/').map(Number)
+  const fps = d > 0 && n > 0 ? n / d : 30
+  return Math.min(Math.max(Math.round(fps * 1000) / 1000, 1), 60)
+}
+
+/** 動画の解像度(幅・高さ)とフレームレート、音声有無を取得 */
 export function getVideoDimensions(
   inputPath: string
-): Promise<{ width: number; height: number }> {
+): Promise<{ width: number; height: number; fps: number; hasAudio: boolean }> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(inputPath, (err, data) => {
       if (err) return reject(err)
@@ -47,7 +55,12 @@ export function getVideoDimensions(
       if (!stream || !stream.width || !stream.height) {
         return reject(new Error('動画の解像度を取得できませんでした'))
       }
-      resolve({ width: stream.width, height: stream.height })
+      const hasAudio = data.streams.some((s) => s.codec_type === 'audio')
+      // avg_frame_rate を優先（VFRでも平均値が取れる）。無効なら r_frame_rate にフォールバック
+      const avg = stream.avg_frame_rate && stream.avg_frame_rate !== '0/0'
+        ? stream.avg_frame_rate
+        : stream.r_frame_rate
+      resolve({ width: stream.width, height: stream.height, fps: parseFrameRate(avg), hasAudio })
     })
   })
 }
@@ -74,12 +87,16 @@ export function burnSubtitles(
   subtitlePath: string,
   outputPath: string,
   format?: { width: number; height: number; fit: OutputFit },
-  trim?: { start: number; end: number }
+  trim?: { start: number; end: number },
+  fps = 30
 ): Promise<void> {
   // Windows パスのバックスラッシュをエスケープ
   const escapedPath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')
 
   const filters: string[] = []
+  // 可変フレームレート(VFR)を固定フレームレート(CFR)へ正規化。
+  // これをしないと iPhone 等で「途中からスローモーション」になる(タイムスタンプずれ)。
+  filters.push(`fps=${fps}`)
   if (format) {
     const { width: w, height: h, fit } = format
     if (fit === 'pad') {
@@ -96,76 +113,113 @@ export function burnSubtitles(
 
   return new Promise((resolve, reject) => {
     const command = ffmpeg(inputPath)
-    const useTrim = trim && trim.end > trim.start
     // トリミング: 開始位置までシークし、区間長だけ出力（字幕側の時刻は事前にシフト済み）
-    if (useTrim) {
+    if (trim && trim.end > trim.start) {
       command.seekInput(trim.start).duration(trim.end - trim.start)
     }
-    command.videoFilters(filters)
-    // 音声コピーはパケット境界でしか切れずカット位置ズレ・音ズレの原因になるため、
-    // トリミング時は音声も再エンコードする
-    if (useTrim) {
-      command.outputOptions(['-c:a', 'aac', '-b:a', '192k'])
-    } else {
-      command.outputOptions('-c:a copy')
-    }
     command
+      .videoFilters(filters)
+      .outputOptions([
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '20',
+        '-pix_fmt', 'yuv420p',
+        '-profile:v', 'high',       // levelはlibx264に自動選択させる(4K原寸でも失敗しない)
+        '-r', String(fps),          // 出力も固定フレームレートに固定
+        '-c:a', 'aac',              // 音声を再エンコードして映像と確実に同期(copyだと再タイミングでズレる)
+        '-b:a', '192k',
+        '-movflags', '+faststart',  // iPhone での読み込み/シークを安定化
+      ])
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)
   })
 }
 
-/** 映像・音声コーデックと解像度を取得 */
-function probeCodecs(
-  inputPath: string
-): Promise<{ videoCodec: string; audioCodec: string | null; height: number }> {
-  return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(inputPath, (err, data) => {
-      if (err) return reject(err)
-      const v = data.streams.find((s) => s.codec_type === 'video')
-      const a = data.streams.find((s) => s.codec_type === 'audio')
-      if (!v) return reject(new Error('映像ストリームが見つかりません'))
-      resolve({
-        videoCodec: v.codec_name ?? '',
-        audioCodec: a?.codec_name ?? null,
-        height: v.height ?? 0,
-      })
-    })
-  })
-}
-
 /**
- * ブラウザ再生用のプレビューMP4を作る。
- * iPhoneの.MOV等はデータトラックが混ざりChromeで再生できないことがあるため、
- * 映像+音声だけのクリーンなMP4に整える。H.264ならコピー（高速・無劣化）、
- * HEVC等ならH.264へ変換（720pに縮小）する。
+ * 複数トリム区間を concat して字幕を焼き込む。
+ * 0区間: トリムなし（burnSubtitles に委譲）
+ * 1区間: seekInput アプローチ（burnSubtitles に委譲）
+ * 2区間以上: FFmpeg complexFilter で trim→concat→字幕
  */
-export async function createPreviewVideo(
+export function burnSubtitlesMultiRange(
   inputPath: string,
-  outputPath: string
+  subtitlePath: string,
+  outputPath: string,
+  ranges: TrimRange[],
+  format?: { width: number; height: number; fit: OutputFit },
+  fps = 30,
+  hasAudio = true
 ): Promise<void> {
-  const { videoCodec, audioCodec, height } = await probeCodecs(inputPath)
-  return new Promise((resolve, reject) => {
-    const command = ffmpeg(inputPath).outputOptions([
-      '-map', '0:v:0',
-      '-map', '0:a:0?',
-      '-dn',
-      '-sn',
-      '-map_chapters', '-1',
-    ])
-    if (videoCodec === 'h264') {
-      command.videoCodec('copy')
-    } else {
-      command
-        .videoCodec('libx264')
-        .outputOptions(['-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p'])
-      if (height > 720) command.videoFilters('scale=-2:720')
+  if (ranges.length === 0) {
+    return burnSubtitles(inputPath, subtitlePath, outputPath, format, undefined, fps)
+  }
+  if (ranges.length === 1) {
+    return burnSubtitles(inputPath, subtitlePath, outputPath, format, ranges[0], fps)
+  }
+
+  const escapedPath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')
+  const n = ranges.length
+  const filterParts: string[] = []
+
+  // 入力ストリームを n 分割
+  const vSplitOut = ranges.map((_, i) => `[vin${i}]`).join('')
+  filterParts.push(`[0:v]split=${n}${vSplitOut}`)
+  if (hasAudio) {
+    const aSplitOut = ranges.map((_, i) => `[ain${i}]`).join('')
+    filterParts.push(`[0:a]asplit=${n}${aSplitOut}`)
+  }
+
+  // 各区間のトリム
+  const vLabels: string[] = []
+  const aLabels: string[] = []
+  for (let i = 0; i < n; i++) {
+    const { start, end } = ranges[i]
+    filterParts.push(`[vin${i}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[v${i}]`)
+    vLabels.push(`[v${i}]`)
+    if (hasAudio) {
+      filterParts.push(`[ain${i}]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS[a${i}]`)
+      aLabels.push(`[a${i}]`)
     }
-    if (audioCodec === 'aac') command.audioCodec('copy')
-    else if (audioCodec) command.audioCodec('aac')
-    command
-      .outputOptions(['-movflags', '+faststart'])
+  }
+
+  // 映像 concat
+  filterParts.push(`${vLabels.join('')}concat=n=${n}:v=1:a=0[vconcated]`)
+  if (hasAudio) {
+    filterParts.push(`${aLabels.join('')}concat=n=${n}:v=0:a=1[aout]`)
+  }
+
+  // concat後に fps・整形・字幕を適用
+  const postFilters: string[] = [`fps=${fps}`]
+  if (format) {
+    const { width: w, height: h, fit } = format
+    if (fit === 'pad') {
+      postFilters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease`)
+      postFilters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`)
+    } else {
+      postFilters.push(`scale=${w}:${h}:force_original_aspect_ratio=increase`)
+      postFilters.push(`crop=${w}:${h}`)
+    }
+  }
+  postFilters.push(`subtitles='${escapedPath}'`)
+  filterParts.push(`[vconcated]${postFilters.join(',')}[vout]`)
+
+  const outputLabels = hasAudio ? ['vout', 'aout'] : ['vout']
+  const opts = [
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '20',
+    '-pix_fmt', 'yuv420p',
+    '-profile:v', 'high',
+    '-r', String(fps),
+    '-movflags', '+faststart',
+  ]
+  if (hasAudio) opts.push('-c:a', 'aac', '-b:a', '192k')
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .complexFilter(filterParts, outputLabels)
+      .outputOptions(opts)
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)
@@ -271,6 +325,62 @@ export async function mergeVideos(inputPaths: string[], outputPath: string): Pro
       command.outputOptions(['-c:a', 'aac', '-b:a', '192k'])
     }
     command
+      .on('end', () => resolve())
+      .on('error', reject)
+      .save(outputPath)
+  })
+}
+
+/** 映像・音声コーデックと解像度を取得 */
+function probeCodecs(
+  inputPath: string
+): Promise<{ videoCodec: string; audioCodec: string | null; height: number }> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(inputPath, (err, data) => {
+      if (err) return reject(err)
+      const v = data.streams.find((s) => s.codec_type === 'video')
+      const a = data.streams.find((s) => s.codec_type === 'audio')
+      if (!v) return reject(new Error('映像ストリームが見つかりません'))
+      resolve({
+        videoCodec: v.codec_name ?? '',
+        audioCodec: a?.codec_name ?? null,
+        height: v.height ?? 0,
+      })
+    })
+  })
+}
+
+/**
+ * ブラウザ再生用のプレビューMP4を作る。
+ * iPhoneの.MOV等はデータトラックが混ざりChromeで再生できないことがあるため、
+ * 映像+音声だけのクリーンなMP4に整える。H.264ならコピー（高速・無劣化）、
+ * HEVC等ならH.264へ変換（720pに縮小）する。
+ */
+export async function createPreviewVideo(
+  inputPath: string,
+  outputPath: string
+): Promise<void> {
+  const { videoCodec, audioCodec, height } = await probeCodecs(inputPath)
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg(inputPath).outputOptions([
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-dn',
+      '-sn',
+      '-map_chapters', '-1',
+    ])
+    if (videoCodec === 'h264') {
+      command.videoCodec('copy')
+    } else {
+      command
+        .videoCodec('libx264')
+        .outputOptions(['-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p'])
+      if (height > 720) command.videoFilters('scale=-2:720')
+    }
+    if (audioCodec === 'aac') command.audioCodec('copy')
+    else if (audioCodec) command.audioCodec('aac')
+    command
+      .outputOptions(['-movflags', '+faststart'])
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)
