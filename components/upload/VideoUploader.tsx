@@ -10,11 +10,20 @@ export function VideoUploader() {
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<File[]>([])
 
-  const addFiles = useCallback((list: FileList | File[]) => {
+  const addFiles = useCallback(async (list: FileList | File[]) => {
     const vids = Array.from(list).filter((f) => f.type.startsWith('video/'))
     if (vids.length === 0) {
       setError('動画ファイルを選択してください')
       return
+    }
+    // クラウド未ダウンロード等で読み取れないファイルを事前に検出
+    const { checkFileReadable } = await import('@/lib/file-utils')
+    for (const f of vids) {
+      const problem = await checkFileReadable(f)
+      if (problem) {
+        setError(problem)
+        return
+      }
     }
     setError(null)
     setFiles((prev) => [...prev, ...vids])
@@ -40,14 +49,14 @@ export function VideoUploader() {
 
     try {
       if (files.length === 1) {
-        // 単一動画: そのままアップロード（再エンコードなし）
-        setProgress('アップロード中...')
+        // 単一動画: アップロード後、サーバーがブラウザ再生用プレビューを用意する
+        setProgress('アップロード・変換中...')
         const fd = new FormData()
         fd.append('video', files[0])
         const res = await fetch('/api/upload', { method: 'POST', body: fd })
         if (!res.ok) throw new Error(await res.text())
         const { sessionId } = await res.json()
-        setVideo(sessionId, URL.createObjectURL(files[0]), files[0].name)
+        setVideo(sessionId, `/api/video/${sessionId}`, files[0].name)
       } else {
         // 複数動画: サーバーで結合
         setProgress('動画を結合中...（少し時間がかかります）')
@@ -55,14 +64,20 @@ export function VideoUploader() {
         files.forEach((f) => fd.append('videos', f))
         const res = await fetch('/api/merge', { method: 'POST', body: fd })
         if (!res.ok) throw new Error(await res.text())
-        const sessionId = res.headers.get('X-Session-Id')
-        if (!sessionId) throw new Error('セッションIDを取得できませんでした')
-        const blob = await res.blob()
-        setVideo(sessionId, URL.createObjectURL(blob), '結合動画.mp4')
+        const { sessionId } = await res.json()
+        setVideo(sessionId, `/api/video/${sessionId}`, '結合動画.mp4')
       }
     } catch (err) {
-      setError(files.length > 1 ? '結合に失敗しました' : 'アップロードに失敗しました')
       console.error(err)
+      // fetch自体の失敗＝ファイルが読み取れない or サーバー未接続
+      if (err instanceof TypeError) {
+        setError(
+          'ファイルを送信できませんでした。Google Drive などクラウド上のファイルは、' +
+          '一度デスクトップ等にコピーしてから選び直してください。'
+        )
+      } else {
+        setError(files.length > 1 ? '結合に失敗しました' : 'アップロードに失敗しました')
+      }
     } finally {
       setIsUploading(false)
       setProgress('')

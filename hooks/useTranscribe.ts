@@ -22,7 +22,10 @@ export function useTranscribe() {
         body: JSON.stringify({ sessionId }),
       })
 
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.error ?? `文字起こしに失敗しました (HTTP ${res.status})`)
+      }
 
       const data = await res.json()
       setSegments(data.segments)
@@ -30,7 +33,9 @@ export function useTranscribe() {
       setTranscribeProgress('完了')
     } catch (err) {
       console.error(err)
-      setTranscribeProgress('エラーが発生しました')
+      const message = err instanceof Error ? err.message : 'エラーが発生しました'
+      setTranscribeProgress(message)
+      alert(message)
     } finally {
       setIsTranscribing(false)
     }

@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { ensureSessionDir } from '@/lib/session'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 300 // プレビュー変換（HEVC等）に時間がかかる場合がある
 
 // Next.js 15 のデフォルト body size limit を無効化
 export const dynamic = 'force-dynamic'
@@ -33,7 +33,15 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer())
     fs.writeFileSync(inputPath, buffer)
 
-    // 動画の基本情報を取得（duration は後で ffprobe で取得）
+    // ブラウザで確実に再生できるプレビューMP4を作る
+    // （iPhoneの.MOVやHEVCはそのままだとChromeで再生できないため）
+    try {
+      const { createPreviewVideo } = await import('@/lib/ffmpeg-server')
+      await createPreviewVideo(inputPath, path.join(sessionDir, 'preview.mp4'))
+    } catch (e) {
+      console.error('Preview generation failed (falling back to original):', e)
+    }
+
     return NextResponse.json({
       sessionId,
       filename: file.name,

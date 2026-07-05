@@ -3,10 +3,20 @@ import fs from 'fs'
 import { whisperToSegments, wordsToSegments } from './subtitle-parser'
 import { TranscribeResult } from '@/types/subtitle'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// モジュール読み込み時ではなく呼び出し時に初期化する（キー未設定でもページ全体が落ちないように）
+let openai: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error(
+      'OPENAI_API_KEY が設定されていません。プロジェクト直下の .env.local に OPENAI_API_KEY=sk-... を記入して、サーバーを再起動してください。'
+    )
+  }
+  if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return openai
+}
 
 export async function transcribeAudio(audioPath: string): Promise<TranscribeResult> {
-  const response = await openai.audio.transcriptions.create({
+  const response = await getClient().audio.transcriptions.create({
     file: fs.createReadStream(audioPath),
     model: 'whisper-1',
     language: 'ja',

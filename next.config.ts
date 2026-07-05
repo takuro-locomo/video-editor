@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // ffmpeg バイナリのパス解決(__dirname)がバンドルで壊れないよう外部化する
+  serverExternalPackages: ['fluent-ffmpeg', 'ffmpeg-static', '@ffprobe-installer/ffprobe'],
   // 動画ファイルの大きなリクエストボディを許可
   experimental: {
     serverActions: {

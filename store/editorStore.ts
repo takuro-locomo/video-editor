@@ -39,6 +39,8 @@ interface EditorState {
 
   // アクション
   setVideo: (sessionId: string, videoUrl: string, filename: string) => void
+  // 末尾に動画を追加結合した後など、字幕・トリミングを保持したまま動画だけ差し替える
+  replaceVideo: (videoUrl: string, filename: string) => void
   setDuration: (duration: number) => void
   setSegments: (segments: SubtitleSegment[]) => void
   setSubtitleStyle: (patch: Partial<SubtitleStyle>) => void
@@ -80,6 +82,7 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setVideo: (sessionId, videoUrl, filename) =>
     set({ sessionId, videoUrl, filename, segments: [], trimStart: null, trimEnd: null }),
+  replaceVideo: (videoUrl, filename) => set({ videoUrl, filename }),
   setDuration: (duration) => set({ duration }),
   setSegments: (segments) => set({ segments }),
   setSubtitleStyle: (patch) =>

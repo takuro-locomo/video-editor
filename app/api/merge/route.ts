@@ -52,13 +52,8 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    const merged = fs.readFileSync(inputPath)
-    return new NextResponse(merged, {
-      headers: {
-        'Content-Type': 'video/mp4',
-        'X-Session-Id': sessionId,
-      },
-    })
+    // 結合結果は input.mp4（クリーンなH.264）なのでそのままプレビューに使える
+    return NextResponse.json({ sessionId })
   } catch (err) {
     console.error('Merge error:', err)
     return NextResponse.json({ error: 'Merge failed' }, { status: 500 })

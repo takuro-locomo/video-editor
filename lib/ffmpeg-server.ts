@@ -1,5 +1,11 @@
 import ffmpeg from 'fluent-ffmpeg'
+import ffmpegPath from 'ffmpeg-static'
+import { path as ffprobePath } from '@ffprobe-installer/ffprobe'
 import { OutputAspect, OutputFit } from '@/types/subtitle'
+
+// システムの ffmpeg に依存せず、npm 同梱の静的バイナリ（libass入り）を使う
+if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath)
+ffmpeg.setFfprobePath(ffprobePath)
 
 /** アスペクト比と元動画サイズから出力解像度を決定（original は null） */
 export function computeTargetDimensions(
@@ -90,13 +96,76 @@ export function burnSubtitles(
 
   return new Promise((resolve, reject) => {
     const command = ffmpeg(inputPath)
+    const useTrim = trim && trim.end > trim.start
     // トリミング: 開始位置までシークし、区間長だけ出力（字幕側の時刻は事前にシフト済み）
-    if (trim && trim.end > trim.start) {
+    if (useTrim) {
       command.seekInput(trim.start).duration(trim.end - trim.start)
     }
+    command.videoFilters(filters)
+    // 音声コピーはパケット境界でしか切れずカット位置ズレ・音ズレの原因になるため、
+    // トリミング時は音声も再エンコードする
+    if (useTrim) {
+      command.outputOptions(['-c:a', 'aac', '-b:a', '192k'])
+    } else {
+      command.outputOptions('-c:a copy')
+    }
     command
-      .videoFilters(filters)
-      .outputOptions('-c:a copy')
+      .on('end', () => resolve())
+      .on('error', reject)
+      .save(outputPath)
+  })
+}
+
+/** 映像・音声コーデックと解像度を取得 */
+function probeCodecs(
+  inputPath: string
+): Promise<{ videoCodec: string; audioCodec: string | null; height: number }> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(inputPath, (err, data) => {
+      if (err) return reject(err)
+      const v = data.streams.find((s) => s.codec_type === 'video')
+      const a = data.streams.find((s) => s.codec_type === 'audio')
+      if (!v) return reject(new Error('映像ストリームが見つかりません'))
+      resolve({
+        videoCodec: v.codec_name ?? '',
+        audioCodec: a?.codec_name ?? null,
+        height: v.height ?? 0,
+      })
+    })
+  })
+}
+
+/**
+ * ブラウザ再生用のプレビューMP4を作る。
+ * iPhoneの.MOV等はデータトラックが混ざりChromeで再生できないことがあるため、
+ * 映像+音声だけのクリーンなMP4に整える。H.264ならコピー（高速・無劣化）、
+ * HEVC等ならH.264へ変換（720pに縮小）する。
+ */
+export async function createPreviewVideo(
+  inputPath: string,
+  outputPath: string
+): Promise<void> {
+  const { videoCodec, audioCodec, height } = await probeCodecs(inputPath)
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg(inputPath).outputOptions([
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-dn',
+      '-sn',
+      '-map_chapters', '-1',
+    ])
+    if (videoCodec === 'h264') {
+      command.videoCodec('copy')
+    } else {
+      command
+        .videoCodec('libx264')
+        .outputOptions(['-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p'])
+      if (height > 720) command.videoFilters('scale=-2:720')
+    }
+    if (audioCodec === 'aac') command.audioCodec('copy')
+    else if (audioCodec) command.audioCodec('aac')
+    command
+      .outputOptions(['-movflags', '+faststart'])
       .on('end', () => resolve())
       .on('error', reject)
       .save(outputPath)

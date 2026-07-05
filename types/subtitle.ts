@@ -2,10 +2,13 @@ export interface SubtitleSegment {
   id: string
   startTime: number // 秒
   endTime: number   // 秒
+  // 部分装飾のインライン記法を含められる: <c=#FF0000>色</c> <s=150>サイズ%</s> <b>太字</b>
   text: string
+  // この字幕だけの個別デザイン（未設定の項目は全体設定を使う）
+  styleOverride?: Partial<SubtitleStyle>
 }
 
-export type SubtitleFontFamily = 'gothic' | 'mincho' | 'notosans'
+export type SubtitleFontFamily = 'gothic' | 'mincho' | 'notosans' | 'maru'
 export type SubtitlePosition = 'top' | 'middle' | 'bottom'
 
 export interface SubtitleStyle {
@@ -13,7 +16,10 @@ export interface SubtitleStyle {
   fontSizePercent: number // 動画の高さに対する文字サイズの割合(%) 例: 6 = 高さの6%
   textColor: string       // #RRGGBB
   bold: boolean
-  outline: boolean        // 縁取り（黒フチ）
+  italic: boolean
+  outline: boolean        // 縁取り
+  outlineColor: string    // #RRGGBB 縁取りの色
+  shadow: boolean         // 影
   backgroundEnabled: boolean
   backgroundColor: string // #RRGGBB
   backgroundOpacity: number // 0〜1
@@ -39,7 +45,10 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   fontSizePercent: 6,
   textColor: '#FFFFFF',
   bold: true,
+  italic: false,
   outline: true,
+  outlineColor: '#000000',
+  shadow: false,
   backgroundEnabled: false,
   backgroundColor: '#000000',
   backgroundOpacity: 0.6,

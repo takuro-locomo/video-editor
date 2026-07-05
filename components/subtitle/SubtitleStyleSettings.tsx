@@ -3,12 +3,14 @@ import { useEditorStore } from '@/store/editorStore'
 import {
   SubtitleFontFamily,
   SubtitlePosition,
+  SubtitleStyle,
   OutputAspect,
   OutputFit,
 } from '@/types/subtitle'
 
 const FONT_OPTIONS: { value: SubtitleFontFamily; label: string }[] = [
   { value: 'gothic', label: 'ゴシック' },
+  { value: 'maru', label: '丸ゴ' },
   { value: 'mincho', label: '明朝' },
   { value: 'notosans', label: 'Noto Sans' },
 ]
@@ -31,6 +33,40 @@ const FIT_OPTIONS: { value: OutputFit; label: string }[] = [
   { value: 'crop', label: '画面いっぱい（切抜）' },
 ]
 
+// ワンタップで全体の雰囲気を変えるプリセット
+const PRESETS: { label: string; swatch: string; style: Partial<SubtitleStyle> }[] = [
+  {
+    label: '定番白テロ',
+    swatch: '#FFFFFF',
+    style: { fontFamily: 'gothic', textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#000000', shadow: false, backgroundEnabled: false },
+  },
+  {
+    label: 'バラエティ黄',
+    swatch: '#FFE600',
+    style: { fontFamily: 'gothic', textColor: '#FFE600', bold: true, italic: false, outline: true, outlineColor: '#000000', shadow: true, backgroundEnabled: false },
+  },
+  {
+    label: 'ポップ',
+    swatch: '#FF6FA5',
+    style: { fontFamily: 'maru', textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#FF4F8B', shadow: false, backgroundEnabled: false },
+  },
+  {
+    label: 'ニュース',
+    swatch: '#1E3A8A',
+    style: { fontFamily: 'gothic', textColor: '#FFFFFF', bold: true, italic: false, outline: false, shadow: false, backgroundEnabled: true, backgroundColor: '#1E3A8A', backgroundOpacity: 0.85 },
+  },
+  {
+    label: 'シネマ',
+    swatch: '#EDE6D5',
+    style: { fontFamily: 'mincho', textColor: '#EDE6D5', bold: false, italic: false, outline: false, shadow: true, backgroundEnabled: false },
+  },
+  {
+    label: '強調赤',
+    swatch: '#FF3B30',
+    style: { fontFamily: 'gothic', textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#CC0000', shadow: true, backgroundEnabled: false },
+  },
+]
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
@@ -40,20 +76,62 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+function Toggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: boolean
+  onChange: () => void
+}) {
+  return (
+    <button
+      onClick={onChange}
+      className={`flex-1 text-sm py-2 rounded-lg border transition-colors
+        ${value ? 'border-blue-500 bg-blue-950/40 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'}`}
+    >
+      {label} {value ? 'ON' : 'OFF'}
+    </button>
+  )
+}
+
 export function SubtitleStyleSettings() {
   const { subtitleStyle: s, setSubtitleStyle, outputSettings: o, setOutputSettings } =
     useEditorStore()
 
   return (
     <div className="overflow-y-auto h-full p-4 space-y-5">
+      {/* プリセット */}
+      <Row label="デザインプリセット">
+        <div className="grid grid-cols-3 gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => setSubtitleStyle(p.style)}
+              className="flex flex-col items-center gap-1 py-2 rounded-lg border border-gray-800 bg-gray-900 text-gray-300 hover:border-gray-600 transition-colors"
+            >
+              <span
+                className="w-5 h-5 rounded-full border border-gray-700"
+                style={{ backgroundColor: p.swatch }}
+              />
+              <span className="text-[11px]">{p.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-gray-600">
+          全字幕に一括適用されます（個別デザインを設定した字幕はそちらが優先）。
+        </p>
+      </Row>
+
       {/* フォント種類 */}
       <Row label="フォント">
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           {FONT_OPTIONS.map((f) => (
             <button
               key={f.value}
               onClick={() => setSubtitleStyle({ fontFamily: f.value })}
-              className={`text-sm py-2 rounded-lg border transition-colors
+              className={`text-xs py-2 rounded-lg border transition-colors
                 ${s.fontFamily === f.value
                   ? 'border-blue-500 bg-blue-950/40 text-white'
                   : 'border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700'}`}
@@ -90,23 +168,30 @@ export function SubtitleStyleSettings() {
         </div>
       </Row>
 
-      {/* 太字・縁取り */}
+      {/* 太字・斜体 */}
       <div className="flex gap-2">
-        <button
-          onClick={() => setSubtitleStyle({ bold: !s.bold })}
-          className={`flex-1 text-sm py-2 rounded-lg border transition-colors
-            ${s.bold ? 'border-blue-500 bg-blue-950/40 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'}`}
-        >
-          太字 {s.bold ? 'ON' : 'OFF'}
-        </button>
-        <button
-          onClick={() => setSubtitleStyle({ outline: !s.outline })}
-          className={`flex-1 text-sm py-2 rounded-lg border transition-colors
-            ${s.outline ? 'border-blue-500 bg-blue-950/40 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'}`}
-        >
-          縁取り {s.outline ? 'ON' : 'OFF'}
-        </button>
+        <Toggle label="太字" value={s.bold} onChange={() => setSubtitleStyle({ bold: !s.bold })} />
+        <Toggle label="斜体" value={s.italic} onChange={() => setSubtitleStyle({ italic: !s.italic })} />
       </div>
+
+      {/* 縁取り・影 */}
+      <div className="flex gap-2">
+        <Toggle label="縁取り" value={s.outline} onChange={() => setSubtitleStyle({ outline: !s.outline })} />
+        <Toggle label="影" value={s.shadow} onChange={() => setSubtitleStyle({ shadow: !s.shadow })} />
+      </div>
+      {s.outline && (
+        <Row label="縁取りの色">
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={s.outlineColor}
+              onChange={(e) => setSubtitleStyle({ outlineColor: e.target.value })}
+              className="w-12 h-9 rounded bg-gray-900 border border-gray-800 cursor-pointer"
+            />
+            <span className="text-xs text-gray-500 font-mono uppercase">{s.outlineColor}</span>
+          </div>
+        </Row>
+      )}
 
       {/* 背景 */}
       <Row label="背景">
@@ -163,7 +248,7 @@ export function SubtitleStyleSettings() {
       </Row>
 
       {/* 1行の最大文字数（自動改行） */}
-      <Row label={`1行の最大文字数（${s.maxCharsPerLine === 0 ? '制限なし' : s.maxCharsPerLine}）`}>
+      <Row label={`1行の最大文字数（${s.maxCharsPerLine === 0 ? '自動' : s.maxCharsPerLine}）`}>
         <input
           type="range"
           min={0}
@@ -174,7 +259,8 @@ export function SubtitleStyleSettings() {
           className="w-full accent-blue-500"
         />
         <p className="text-[11px] text-gray-600">
-          横向き動画は20前後、縦動画(リール)は12前後が目安です。
+          自動＝画面幅に収まる文字数で折り返し。プレビューの改行位置は書き出しと同じ計算です。
+          字幕テキスト内の改行（Enter）はそのまま反映されます。
         </p>
       </Row>
 
@@ -197,6 +283,9 @@ export function SubtitleStyleSettings() {
               </button>
             ))}
           </div>
+          <p className="text-[11px] text-gray-600">
+            9:16 を選ぶと動画エリアがスマホ画面のプレビューになります。
+          </p>
         </Row>
 
         {o.aspect !== 'original' && (

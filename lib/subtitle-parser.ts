@@ -1,6 +1,7 @@
 import { SubtitleSegment, SubtitleStyle } from '@/types/subtitle'
 import { secondsToSrtTime } from './time-utils'
-import { fontFamilyToAss, hexToAssColor, wrapText } from './subtitle-style'
+import { fontFamilyToAss, hexToAssColor, hexToAssBgr } from './subtitle-style'
+import { parseRichText, wrapSpans, splitSpansByLine, stripRichTags, RichSpan } from './rich-text'
 
 /** SubtitleSegment[] を SRT 文字列に変換 */
 export function segmentsToSrt(segments: SubtitleSegment[]): string {
@@ -8,7 +9,7 @@ export function segmentsToSrt(segments: SubtitleSegment[]): string {
     .map((seg, i) => {
       const start = secondsToSrtTime(seg.startTime)
       const end = secondsToSrtTime(seg.endTime)
-      return `${i + 1}\n${start} --> ${end}\n${seg.text}\n`
+      return `${i + 1}\n${start} --> ${end}\n${stripRichTags(seg.text)}\n`
     })
     .join('\n')
 }
@@ -34,22 +35,25 @@ function positionToAlignment(position: SubtitleStyle['position']): number {
   return position === 'top' ? 8 : position === 'middle' ? 5 : 2
 }
 
-/**
- * SubtitleSegment[] を スタイル付き ASS 文字列に変換。
- * PlayResX/Y を動画の実寸にすることで、フォントサイズ(%)が出力解像度に正しく追従する。
- */
-export function segmentsToAss(
-  segments: SubtitleSegment[],
+/** 1つのスタイル設定から ASS の Style 行を生成 */
+function buildAssStyleLine(
+  name: string,
   style: SubtitleStyle,
   width: number,
   height: number
-): string {
+): { line: string; fontSize: number; maxChars: number } {
   const fontName = fontFamilyToAss(style.fontFamily)
   const fontSize = Math.round((style.fontSizePercent / 100) * height)
   const primary = hexToAssColor(style.textColor, 1)
-  const outlineColour = '&H00000000' // 黒フチ
-  const backColour = hexToAssColor(style.backgroundColor, style.backgroundOpacity)
+  // libass の BorderStyle=3（不透明ボックス）はボックスを OutlineColour で描画する
+  const outlineColour = style.backgroundEnabled
+    ? hexToAssColor(style.backgroundColor, style.backgroundOpacity)
+    : hexToAssColor(style.outlineColor ?? '#000000', 1)
+  const backColour = style.backgroundEnabled
+    ? hexToAssColor(style.backgroundColor, style.backgroundOpacity)
+    : hexToAssColor('#000000', 0.5) // 影の色（BorderStyle=1 のとき Shadow に使われる）
   const bold = style.bold ? -1 : 0
+  const italic = style.italic ? -1 : 0
   // 背景ありなら不透明ボックス(3)、なければ縁取り(1)
   const borderStyle = style.backgroundEnabled ? 3 : 1
   const outline = style.backgroundEnabled
@@ -57,7 +61,11 @@ export function segmentsToAss(
     : style.outline
     ? Math.max(2, Math.round(height * 0.004)) // 縁取りの太さ
     : 0
-  const shadow = style.backgroundEnabled || !style.outline ? 0 : 1
+  const shadow = style.backgroundEnabled
+    ? 0
+    : style.shadow
+    ? Math.max(2, Math.round(height * 0.004))
+    : 0
   const alignment = positionToAlignment(style.position)
   const marginV = Math.round(height * 0.06)
   const marginLR = Math.round(width * 0.04)
@@ -65,12 +73,96 @@ export function segmentsToAss(
   // 自動折り返し: フレーム幅とフォントサイズから1行に収まる文字数を求める。
   // libass は日本語(スペース無し)を折り返せないことがあるため、こちらで明示的に改行する。
   // 全角1文字 ≒ fontSize 幅とみなす。ユーザー指定があればその小さい方を採用。
-  const usableWidth = width - marginLR * 2
-  const autoMaxChars = Math.max(1, Math.floor(usableWidth / fontSize))
-  const effectiveMaxChars =
+  // 丸め前の値で計算する（プレビュー側と同じ比率ベースの式にして改行位置を一致させる）
+  const usableWidth = width - width * 0.04 * 2
+  const exactFontSize = (style.fontSizePercent / 100) * height
+  const autoMaxChars = Math.max(1, Math.floor(usableWidth / exactFontSize))
+  const maxChars =
     style.maxCharsPerLine > 0
       ? Math.min(style.maxCharsPerLine, autoMaxChars)
       : autoMaxChars
+
+  const line = `Style: ${name},${fontName},${fontSize},${primary},&H000000FF,${outlineColour},${backColour},${bold},${italic},0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginLR},${marginLR},${marginV},1`
+  return { line, fontSize, maxChars }
+}
+
+/** 部分装飾スパン列を ASS のインラインタグ付きテキストに変換 */
+function spansToAssText(spans: RichSpan[], baseFontSize: number): string {
+  return spans
+    .map((sp) => {
+      const esc = escapeAssText(sp.text)
+      const tags: string[] = []
+      if (sp.color) tags.push(`\\c${hexToAssBgr(sp.color)}`)
+      if (sp.sizePercent && sp.sizePercent !== 100) {
+        tags.push(`\\fs${Math.max(1, Math.round((baseFontSize * sp.sizePercent) / 100))}`)
+      }
+      if (sp.bold) tags.push('\\b1')
+      // {\r} でこの Dialogue のスタイルに戻す
+      return tags.length ? `{${tags.join('')}}${esc}{\\r}` : esc
+    })
+    .join('')
+}
+
+/**
+ * SubtitleSegment[] を スタイル付き ASS 文字列に変換。
+ * PlayResX/Y を動画の実寸にすることで、フォントサイズ(%)が出力解像度に正しく追従する。
+ * 字幕ごとの styleOverride は専用の Style 行として出力し、
+ * テキスト内の部分装飾（<c=> <s=> <b>）はインラインタグに変換する。
+ */
+export function segmentsToAss(
+  segments: SubtitleSegment[],
+  style: SubtitleStyle,
+  width: number,
+  height: number
+): string {
+  const styleLines: string[] = []
+  const base = buildAssStyleLine('Default', style, width, height)
+  styleLines.push(base.line)
+
+  const events: string[] = []
+  segments.forEach((seg, i) => {
+    let styleName = 'Default'
+    let fontSize = base.fontSize
+    let maxChars = base.maxChars
+    const merged = { ...style, ...seg.styleOverride }
+    if (seg.styleOverride && Object.keys(seg.styleOverride).length > 0) {
+      styleName = `Seg${i}`
+      const own = buildAssStyleLine(styleName, merged, width, height)
+      styleLines.push(own.line)
+      fontSize = own.fontSize
+      maxChars = own.maxChars
+    }
+    const spans = wrapSpans(parseRichText(seg.text), maxChars)
+    const start = secondsToAssTime(seg.startTime)
+    const end = secondsToAssTime(seg.endTime)
+
+    if (merged.backgroundEnabled) {
+      // 背景ボックスは行ごとに描かれ、行間で重なると二重ブレンドで濃くなる。
+      // 行を別イベントに分割し、重ならない行送りで座標指定して回避する。
+      const lines = splitSpansByLine(spans)
+      const n = lines.length
+      const lineHeight = Math.round(fontSize * 1.35)
+      const x = Math.round(width / 2)
+      const marginV = Math.round(height * 0.06)
+      lines.forEach((lineSpans, li) => {
+        let y: number
+        if (merged.position === 'top') {
+          y = marginV + li * lineHeight
+        } else if (merged.position === 'middle') {
+          y = Math.round(height / 2 + (li - (n - 1) / 2) * lineHeight)
+        } else {
+          y = height - marginV - (n - 1 - li) * lineHeight
+        }
+        const text = spansToAssText(lineSpans, fontSize)
+        events.push(
+          `Dialogue: 0,${start},${end},${styleName},,0,0,0,,{\\pos(${x},${y})}${text}`
+        )
+      })
+    } else {
+      const text = spansToAssText(spans, fontSize)
+      events.push(`Dialogue: 0,${start},${end},${styleName},,0,0,0,,${text}`)
+    }
+  })
 
   const header = [
     '[Script Info]',
@@ -82,20 +174,13 @@ export function segmentsToAss(
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${fontName},${fontSize},${primary},&H000000FF,${outlineColour},${backColour},${bold},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginLR},${marginLR},${marginV},1`,
+    ...styleLines,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ].join('\n')
 
-  const events = segments
-    .map(
-      (seg) =>
-        `Dialogue: 0,${secondsToAssTime(seg.startTime)},${secondsToAssTime(seg.endTime)},Default,,0,0,0,,${escapeAssText(wrapText(seg.text, effectiveMaxChars))}`
-    )
-    .join('\n')
-
-  return `${header}\n${events}\n`
+  return `${header}\n${events.join('\n')}\n`
 }
 
 /** Whisper の verbose_json レスポンス(segment単位)を SubtitleSegment[] に変換 */

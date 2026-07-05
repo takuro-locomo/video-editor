@@ -4,12 +4,14 @@ import { SubtitleFontFamily } from '@/types/subtitle'
 export function fontFamilyToCss(family: SubtitleFontFamily): string {
   switch (family) {
     case 'mincho':
-      return '"Yu Mincho", "YuMincho", "MS Mincho", serif'
+      return '"Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "MS Mincho", serif'
     case 'notosans':
       return '"Noto Sans JP", "Yu Gothic", sans-serif'
+    case 'maru':
+      return '"Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif'
     case 'gothic':
     default:
-      return '"Yu Gothic", "YuGothic", "Meiryo", sans-serif'
+      return '"Hiragino Sans", "Yu Gothic", "YuGothic", "Meiryo", sans-serif'
   }
 }
 
@@ -17,12 +19,14 @@ export function fontFamilyToCss(family: SubtitleFontFamily): string {
 export function fontFamilyToAss(family: SubtitleFontFamily): string {
   switch (family) {
     case 'mincho':
-      return 'MS Mincho'
+      return 'Hiragino Mincho ProN'
     case 'notosans':
       return 'Noto Sans JP'
+    case 'maru':
+      return 'Hiragino Maru Gothic ProN'
     case 'gothic':
     default:
-      return 'Meiryo'
+      return 'Hiragino Sans'
   }
 }
 
@@ -59,6 +63,13 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
     g: parseInt(h.slice(2, 4), 16),
     b: parseInt(h.slice(4, 6), 16),
   }
+}
+
+/** #RRGGBB → ASS インライン用の色表記 &HBBGGRR& （\c タグで使用） */
+export function hexToAssBgr(hex: string): string {
+  const { r, g, b } = hexToRgb(hex)
+  const toHex = (n: number) => n.toString(16).padStart(2, '0').toUpperCase()
+  return `&H${toHex(b)}${toHex(g)}${toHex(r)}&`
 }
 
 /**

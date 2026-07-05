@@ -1,8 +1,150 @@
 'use client'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
-import { SubtitleSegment } from '@/types/subtitle'
+import { SubtitleSegment, SubtitleStyle, SubtitleFontFamily } from '@/types/subtitle'
 import { formatTime } from '@/lib/time-utils'
+import { parseRichText, stripRichTags } from '@/lib/rich-text'
+import { RichText } from './RichText'
+
+const PART_COLORS = ['#FF3B30', '#FFE600', '#34C759', '#4FC3F7', '#FF6FA5']
+const PART_SIZES: { label: string; value: number }[] = [
+  { label: '小', value: 75 },
+  { label: '大', value: 130 },
+  { label: '特大', value: 170 },
+]
+const FONT_OPTIONS: { value: SubtitleFontFamily; label: string }[] = [
+  { value: 'gothic', label: 'ゴシック' },
+  { value: 'maru', label: '丸ゴ' },
+  { value: 'mincho', label: '明朝' },
+  { value: 'notosans', label: 'Noto' },
+]
+
+/** 選択中の字幕1件だけのデザイン設定パネル */
+function SegmentStylePanel({ segment }: { segment: SubtitleSegment }) {
+  const { subtitleStyle, updateSegment } = useEditorStore()
+  const ov = segment.styleOverride ?? {}
+  const merged: SubtitleStyle = { ...subtitleStyle, ...ov }
+
+  const patch = (p: Partial<SubtitleStyle>) =>
+    updateSegment(segment.id, { styleOverride: { ...ov, ...p } })
+
+  const hasOverride = Object.keys(ov).length > 0
+
+  return (
+    <div className="mt-2 p-2.5 rounded-lg bg-gray-800/70 border border-gray-700 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-gray-300">
+          この字幕だけのデザイン
+        </span>
+        {hasOverride && (
+          <button
+            className="text-[11px] text-gray-500 hover:text-gray-300"
+            onClick={() => updateSegment(segment.id, { styleOverride: undefined })}
+          >
+            全体設定に戻す
+          </button>
+        )}
+      </div>
+
+      {/* フォント */}
+      <div className="grid grid-cols-4 gap-1">
+        {FONT_OPTIONS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => patch({ fontFamily: f.value })}
+            className={`text-[11px] py-1 rounded border transition-colors
+              ${merged.fontFamily === f.value
+                ? 'border-blue-500 bg-blue-950/40 text-white'
+                : 'border-gray-700 bg-gray-800 text-gray-400'}`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* サイズ */}
+      <label className="block text-[11px] text-gray-400">
+        文字サイズ（{merged.fontSizePercent}）
+        <input
+          type="range"
+          min={3}
+          max={14}
+          step={0.5}
+          value={merged.fontSizePercent}
+          onChange={(e) => patch({ fontSizePercent: Number(e.target.value) })}
+          className="w-full accent-blue-500"
+        />
+      </label>
+
+      {/* 色・縁取り色 */}
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-[11px] text-gray-400">
+          文字色
+          <input
+            type="color"
+            value={merged.textColor}
+            onChange={(e) => patch({ textColor: e.target.value })}
+            className="w-8 h-7 rounded bg-gray-800 border border-gray-700 cursor-pointer"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-[11px] text-gray-400">
+          縁取り色
+          <input
+            type="color"
+            value={merged.outlineColor}
+            onChange={(e) => patch({ outlineColor: e.target.value, outline: true })}
+            className="w-8 h-7 rounded bg-gray-800 border border-gray-700 cursor-pointer"
+          />
+        </label>
+      </div>
+
+      {/* トグル各種 */}
+      <div className="grid grid-cols-4 gap-1">
+        {(
+          [
+            ['太字', 'bold'],
+            ['斜体', 'italic'],
+            ['縁取り', 'outline'],
+            ['影', 'shadow'],
+          ] as const
+        ).map(([label, key]) => (
+          <button
+            key={key}
+            onClick={() => patch({ [key]: !merged[key] } as Partial<SubtitleStyle>)}
+            className={`text-[11px] py-1 rounded border transition-colors
+              ${merged[key]
+                ? 'border-blue-500 bg-blue-950/40 text-white'
+                : 'border-gray-700 bg-gray-800 text-gray-400'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* 位置 */}
+      <div className="grid grid-cols-3 gap-1">
+        {(
+          [
+            ['上', 'top'],
+            ['中央', 'middle'],
+            ['下', 'bottom'],
+          ] as const
+        ).map(([label, pos]) => (
+          <button
+            key={pos}
+            onClick={() => patch({ position: pos })}
+            className={`text-[11px] py-1 rounded border transition-colors
+              ${merged.position === pos
+                ? 'border-blue-500 bg-blue-950/40 text-white'
+                : 'border-gray-700 bg-gray-800 text-gray-400'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function SubtitleItem({
   segment,
@@ -20,13 +162,31 @@ function SubtitleItem({
   const { updateSegment, deleteSegment, setCurrentTime, splitSegment, mergeWithNext } =
     useEditorStore()
   const [isEditing, setIsEditing] = useState(false)
+  const [showDesign, setShowDesign] = useState(false)
   const [editText, setEditText] = useState(segment.text)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const canSplit = currentTime > segment.startTime && currentTime < segment.endTime
+  const hasOverride = !!segment.styleOverride && Object.keys(segment.styleOverride).length > 0
 
   const save = () => {
     updateSegment(segment.id, { text: editText })
     setIsEditing(false)
+  }
+
+  // 選択範囲をタグで囲む。未選択なら全体を囲む
+  const wrapSelection = (open: string, close: string) => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const [a, b] = start === end ? [0, editText.length] : [start, end]
+    const next = editText.slice(0, a) + open + editText.slice(a, b) + close + editText.slice(b)
+    setEditText(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      ta.setSelectionRange(a + open.length, b + open.length)
+    })
   }
 
   return (
@@ -46,6 +206,11 @@ function SubtitleItem({
           </button>
           <span className="text-gray-600 text-xs">→</span>
           <span className="text-xs text-gray-500 font-mono">{formatTime(segment.endTime)}</span>
+          {hasOverride && (
+            <span className="text-[10px] text-purple-400 border border-purple-800 rounded-full px-1.5" title="個別デザイン設定あり">
+              🎨
+            </span>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -65,6 +230,13 @@ function SubtitleItem({
             結合
           </button>
           <button
+            className={`text-xs px-2 py-0.5 rounded ${showDesign ? 'text-purple-300' : 'text-gray-500 hover:text-white'}`}
+            onClick={(e) => { e.stopPropagation(); setShowDesign(!showDesign) }}
+            title="この字幕だけのデザイン"
+          >
+            🎨
+          </button>
+          <button
             className="text-xs text-gray-500 hover:text-white px-2 py-0.5 rounded"
             onClick={(e) => { e.stopPropagation(); setIsEditing(!isEditing); setEditText(segment.text) }}
           >
@@ -82,13 +254,61 @@ function SubtitleItem({
       {/* テキスト */}
       {isEditing ? (
         <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+          {/* 部分装飾ツールバー: 選択した文字に適用（未選択なら全体） */}
+          <div className="flex flex-wrap items-center gap-1">
+            {PART_COLORS.map((c) => (
+              <button
+                key={c}
+                className="w-5 h-5 rounded-full border border-gray-600 hover:scale-110 transition-transform"
+                style={{ backgroundColor: c }}
+                onClick={() => wrapSelection(`<c=${c}>`, '</c>')}
+                title={`選択文字を ${c} に`}
+              />
+            ))}
+            <input
+              type="color"
+              className="w-6 h-6 rounded bg-gray-800 border border-gray-600 cursor-pointer"
+              onChange={(e) => wrapSelection(`<c=${e.target.value.toUpperCase()}>`, '</c>')}
+              title="選択文字を任意の色に"
+            />
+            <span className="w-px h-4 bg-gray-700 mx-0.5" />
+            {PART_SIZES.map((sz) => (
+              <button
+                key={sz.value}
+                className="text-[11px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-300 hover:border-gray-400"
+                onClick={() => wrapSelection(`<s=${sz.value}>`, '</s>')}
+              >
+                {sz.label}
+              </button>
+            ))}
+            <button
+              className="text-[11px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-300 font-bold hover:border-gray-400"
+              onClick={() => wrapSelection('<b>', '</b>')}
+            >
+              B
+            </button>
+            <span className="w-px h-4 bg-gray-700 mx-0.5" />
+            <button
+              className="text-[11px] px-1.5 py-0.5 rounded border border-gray-600 text-gray-400 hover:border-gray-400"
+              onClick={() => setEditText(stripRichTags(editText))}
+              title="装飾をすべて解除"
+            >
+              解除
+            </button>
+          </div>
+
           <textarea
+            ref={textareaRef}
             className="w-full bg-gray-800 text-white rounded-lg px-3 py-2 text-sm resize-none border border-gray-700 focus:border-blue-500 outline-none"
-            rows={2}
+            rows={3}
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
             autoFocus
           />
+          <p className="text-[10px] text-gray-600">
+            文字を選択して色/サイズ/Bボタンで部分装飾。Enterで改行位置を指定できます。
+          </p>
+
           {/* タイミング調整 */}
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-gray-400">
@@ -124,7 +344,16 @@ function SubtitleItem({
           </button>
         </div>
       ) : (
-        <p className="text-white text-sm leading-relaxed">{segment.text}</p>
+        <p className="text-white text-sm leading-relaxed whitespace-pre-wrap">
+          <RichText spans={parseRichText(segment.text)} />
+        </p>
+      )}
+
+      {/* 個別デザインパネル */}
+      {showDesign && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <SegmentStylePanel segment={segment} />
+        </div>
       )}
     </div>
   )
