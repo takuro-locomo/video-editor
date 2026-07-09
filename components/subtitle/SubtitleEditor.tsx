@@ -287,6 +287,7 @@ function SubtitleItem({
                   {run.sizeMultiplier && (
                     <span className="text-xs text-blue-400">×{run.sizeMultiplier}</span>
                   )}
+                  {run.bold && <span className="text-xs text-gray-300 font-bold">B</span>}
                   {run.color && (
                     <span
                       className="w-4 h-4 rounded-full inline-block border border-gray-600 flex-shrink-0"

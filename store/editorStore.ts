@@ -4,6 +4,7 @@ import {
   SubtitleStyle,
   StyleRun,
   TrimRange,
+  SafeZonePresetKey,
   DEFAULT_SUBTITLE_STYLE,
   OutputSettings,
   DEFAULT_OUTPUT_SETTINGS,
@@ -40,6 +41,12 @@ interface EditorState {
   // トリミング（複数区間。空配列=全体を使用）
   trimRanges: TrimRange[]
 
+  // テロップ品質（セーフゾーンガイド・キーワード強調色）
+  safeZonePreset: SafeZonePresetKey
+  emphasisColor: string
+  /** F-01/R-05 視聴者モード: 編集者体感の1.5倍で読了時間を厳しめに判定 */
+  viewerCheckMode: boolean
+
   // 履歴（Undo/Redo）
   _past: HistoryEntry[]
   _future: HistoryEntry[]
@@ -74,6 +81,11 @@ interface EditorState {
   addSegmentAt: (time: number) => string
   splitSegment: (id: string, atTime: number) => void
   mergeWithNext: (id: string) => void
+  setSafeZonePreset: (preset: SafeZonePresetKey) => void
+  setEmphasisColor: (color: string) => void
+  setViewerCheckMode: (v: boolean) => void
+  /** 全セグメントへの一括変換（句読点変換・自動強調・タイミング調整など）。履歴に積む */
+  bulkUpdateSegments: (updater: (segments: SubtitleSegment[]) => SubtitleSegment[]) => void
   addTrimRange: (start: number, end: number) => void
   updateTrimRange: (index: number, patch: Partial<TrimRange>) => void
   deleteTrimRange: (index: number) => void
@@ -115,6 +127,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   subtitleStyle: DEFAULT_SUBTITLE_STYLE,
   outputSettings: DEFAULT_OUTPUT_SETTINGS,
   trimRanges: [],
+  safeZonePreset: 'off',
+  emphasisColor: '#FFE600',
+  viewerCheckMode: false,
   _past: [],
   _future: [],
   currentTime: 0,
@@ -231,6 +246,11 @@ export const useEditorStore = create<EditorState>((set) => ({
           .sort((a, b) => a.startTime - b.startTime),
       }
     }),
+  setSafeZonePreset: (safeZonePreset) => set({ safeZonePreset }),
+  setEmphasisColor: (emphasisColor) => set({ emphasisColor }),
+  setViewerCheckMode: (viewerCheckMode) => set({ viewerCheckMode }),
+  bulkUpdateSegments: (updater) =>
+    set((s) => ({ ...withHist(s), segments: updater(s.segments) })),
   addTrimRange: (start, end) =>
     set((s) => ({
       ...withHist(s),

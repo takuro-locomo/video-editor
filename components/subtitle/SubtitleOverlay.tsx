@@ -113,7 +113,8 @@ export function SubtitleOverlay() {
         <div
           className="text-center max-w-full"
           style={{
-            fontFamily: fontFamilyToCss(s.fontFamily),
+            // F-09 和欧混植: 欧文フォントを先頭に置き、英数字だけ差し替える
+            fontFamily: fontFamilyToCss(s.fontFamily, s.latinFontEnabled),
             fontSize: `${fontSize}px`,
             fontWeight: s.bold ? 700 : 400,
             fontStyle: s.italic ? 'italic' : 'normal',
@@ -141,6 +142,7 @@ export function SubtitleOverlay() {
                   const style: React.CSSProperties = {}
                   if (p.run.sizeMultiplier) style.fontSize = `${fontSize * p.run.sizeMultiplier}px`
                   if (p.run.color) style.color = p.run.color
+                  if (p.run.bold) style.fontWeight = 800
                   return <span key={i} style={style}>{p.text}</span>
                 })}
               </span>

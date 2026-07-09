@@ -7,6 +7,7 @@ import {
   wrapText,
   computeEffectiveMaxChars,
   mergeStyle,
+  LATIN_FONT_PAIRS,
 } from './subtitle-style'
 
 /** SubtitleSegment[] を SRT 文字列に変換 */
@@ -60,6 +61,7 @@ function applyRunsToAss(
   runs: StyleRun[],
   baseFontPx: number,
   baseColor: string,
+  baseBold: boolean,
   effectiveMaxChars: number
 ): string {
   const wrapped = wrapText(orig, effectiveMaxChars)
@@ -84,16 +86,39 @@ function applyRunsToAss(
     const open: string[] = []
     if (run.sizeMultiplier) open.push(`\\fs${Math.round(baseFontPx * run.sizeMultiplier)}`)
     if (run.color) open.push(`\\c${hexToAssColorInline(run.color)}`)
+    if (run.bold) open.push('\\b1')
     if (open.length) result += `{${open.join('')}}`
     result += escapeContent(wChars.slice(wFrom, wTo).join(''))
     const close: string[] = []
     if (run.sizeMultiplier) close.push(`\\fs${baseFontPx}`)
     if (run.color) close.push(`\\c${hexToAssColorInline(baseColor)}`)
+    if (run.bold) close.push(`\\b${baseBold ? 1 : 0}`)
     if (close.length) result += `{${close.join('')}}`
     wi = wTo
   }
   result += escapeContent(wChars.slice(wi).join(''))
   return result
+}
+
+/**
+ * F-09 和欧混植: エスケープ済みASSテキスト内の英数字の連なりを
+ * {\fn欧文}〜{\fn和文} で挟んで欧文フォントに差し替える。
+ * {...} は既存のスタイルタグ、\N は改行タグなので中身に手を付けない
+ * （escapeAssText が本文中の { } を全角に置換済みのため、残る { } はすべてタグ）。
+ */
+function applyLatinFontToAss(assText: string, latinFont: string, baseFont: string): string {
+  // 英数字とその間の区切り記号（空白・ピリオド等）を1つの欧文ランとして扱う
+  const latinRunRe = /[A-Za-z0-9](?:[A-Za-z0-9 .,'%:&+\-]*[A-Za-z0-9%])?/g
+  const wrapLatin = (content: string) =>
+    content.replace(latinRunRe, (m) => `{\\fn${latinFont}}${m}{\\fn${baseFont}}`)
+  return assText
+    .split(/(\{[^}]*\})/) // タグ部分はそのまま通す
+    .map((part) =>
+      part.startsWith('{')
+        ? part
+        : part.split('\\N').map(wrapLatin).join('\\N') // \N の N を英字として拾わない
+    )
+    .join('')
 }
 
 /** 位置 → ASS の Alignment(numpad)。中央寄せ: top=8, middle=5, bottom=2 */
@@ -173,9 +198,18 @@ export function segmentsToAss(
       const prefix = overrideTags.length ? `{${overrideTags.join('')}}` : ''
 
       // インラインスタイルランがあれば run タグ込みで生成
-      const textPart = seg.styleRuns?.length
-        ? applyRunsToAss(seg.text, seg.styleRuns, segFontPx, eff.textColor, segMaxChars)
+      let textPart = seg.styleRuns?.length
+        ? applyRunsToAss(seg.text, seg.styleRuns, segFontPx, eff.textColor, eff.bold, segMaxChars)
         : escapeAssText(wrapText(seg.text, segMaxChars))
+
+      // F-09 和欧混植: 英数字だけペアの欧文フォントに差し替え
+      if (eff.latinFontEnabled) {
+        textPart = applyLatinFontToAss(
+          textPart,
+          LATIN_FONT_PAIRS[eff.fontFamily].ass,
+          fontFamilyToAss(eff.fontFamily)
+        )
+      }
 
       const start = secondsToAssTime(seg.startTime)
       const end = secondsToAssTime(seg.endTime)

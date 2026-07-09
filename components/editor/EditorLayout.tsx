@@ -7,10 +7,11 @@ import { SubtitleTimeline } from './SubtitleTimeline'
 import { Toolbar } from './Toolbar'
 import { SubtitleEditor } from '@/components/subtitle/SubtitleEditor'
 import { SubtitleStyleSettings } from '@/components/subtitle/SubtitleStyleSettings'
+import { TelopLintPanel } from '@/components/subtitle/TelopLintPanel'
 
 export function EditorLayout() {
   const { activeTab, setActiveTab } = useEditorStore()
-  const [rightPanel, setRightPanel] = useState<'list' | 'style'>('list')
+  const [rightPanel, setRightPanel] = useState<'list' | 'style' | 'check'>('list')
 
   return (
     <div className="flex flex-col h-screen bg-gray-950">
@@ -38,6 +39,7 @@ export function EditorLayout() {
             {([
               { key: 'list', label: '字幕リスト' },
               { key: 'style', label: '🎨 デザイン' },
+              { key: 'check', label: '✅ チェック' },
             ] as const).map((t) => (
               <button
                 key={t.key}
@@ -52,7 +54,7 @@ export function EditorLayout() {
             ))}
           </div>
           <div className="flex-1 overflow-hidden">
-            {rightPanel === 'list' ? <SubtitleEditor /> : <SubtitleStyleSettings />}
+            {rightPanel === 'list' ? <SubtitleEditor /> : rightPanel === 'style' ? <SubtitleStyleSettings /> : <TelopLintPanel />}
           </div>
         </div>
       </div>

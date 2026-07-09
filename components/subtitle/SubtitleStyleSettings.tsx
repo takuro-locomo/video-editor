@@ -33,37 +33,39 @@ const FIT_OPTIONS: { value: OutputFit; label: string }[] = [
   { value: 'crop', label: '画面いっぱい（切抜）' },
 ]
 
-// ワンタップで全体の雰囲気を変えるプリセット
+// ジャンル別プリセット（テロップ機能仕様書 4-2）。サイズ・位置・折り返しまで含めて一括適用
 const PRESETS: { label: string; swatch: string; style: Partial<SubtitleStyle> }[] = [
   {
-    label: '定番白テロ',
-    swatch: '#FFFFFF',
-    style: { fontFamily: 'gothic', textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#000000', shadow: false, backgroundEnabled: false },
-  },
-  {
-    label: 'バラエティ黄',
+    label: 'バラエティ',
     swatch: '#FFE600',
-    style: { fontFamily: 'gothic', textColor: '#FFE600', bold: true, italic: false, outline: true, outlineColor: '#000000', shadow: true, backgroundEnabled: false },
+    style: { fontFamily: 'gothic', fontSizePercent: 8, textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#000000', shadow: false, backgroundEnabled: false, position: 'bottom', latinFontEnabled: false },
   },
   {
-    label: 'ポップ',
-    swatch: '#FF6FA5',
-    style: { fontFamily: 'maru', textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#FF4F8B', shadow: false, backgroundEnabled: false },
-  },
-  {
-    label: 'ニュース',
+    label: 'ビジネス/解説',
     swatch: '#1E3A8A',
-    style: { fontFamily: 'gothic', textColor: '#FFFFFF', bold: true, italic: false, outline: false, shadow: false, backgroundEnabled: true, backgroundColor: '#1E3A8A', backgroundOpacity: 0.85 },
+    style: { fontFamily: 'gothic', fontSizePercent: 6, textColor: '#FFFFFF', bold: true, italic: false, outline: false, shadow: false, backgroundEnabled: true, backgroundColor: '#1E3A8A', backgroundOpacity: 0.8, position: 'bottom', latinFontEnabled: true },
   },
   {
-    label: 'シネマ',
+    label: 'おしゃれ/Vlog',
+    swatch: '#E8E8E8',
+    // 装飾は引き算。背景と同系色×高め透明度の座布団で映像の雰囲気を保ちつつ可読性を確保
+    style: { fontFamily: 'notosans', fontSizePercent: 4.5, textColor: '#FFFFFF', bold: false, italic: false, outline: false, shadow: false, backgroundEnabled: true, backgroundColor: '#000000', backgroundOpacity: 0.25, position: 'bottom', latinFontEnabled: true },
+  },
+  {
+    label: 'シネマ/明朝',
     swatch: '#EDE6D5',
-    style: { fontFamily: 'mincho', textColor: '#EDE6D5', bold: false, italic: false, outline: false, shadow: true, backgroundEnabled: false },
+    style: { fontFamily: 'mincho', fontSizePercent: 5.5, textColor: '#EDE6D5', bold: false, italic: false, outline: false, shadow: true, backgroundEnabled: false, position: 'bottom', latinFontEnabled: true },
   },
   {
-    label: '強調赤',
-    swatch: '#FF3B30',
-    style: { fontFamily: 'gothic', textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#CC0000', shadow: true, backgroundEnabled: false },
+    label: 'ホラー',
+    swatch: '#8B0000',
+    style: { fontFamily: 'mincho', fontSizePercent: 6.5, textColor: '#B41E2D', bold: true, italic: false, outline: true, outlineColor: '#1A001A', shadow: true, backgroundEnabled: false, position: 'middle', latinFontEnabled: false },
+  },
+  {
+    label: 'ショート動画',
+    swatch: '#FFFFFF',
+    // 中央配置・特大・1行8〜10文字（R-07）
+    style: { fontFamily: 'gothic', fontSizePercent: 9, textColor: '#FFFFFF', bold: true, italic: false, outline: true, outlineColor: '#000000', shadow: false, backgroundEnabled: false, position: 'middle', maxCharsPerLine: 10, latinFontEnabled: false },
   },
 ]
 
@@ -150,6 +152,17 @@ export function SubtitleStyleSettings() {
             </button>
           ))}
         </div>
+        {/* F-09 和欧混植 */}
+        <button
+          onClick={() => setSubtitleStyle({ latinFontEnabled: !s.latinFontEnabled })}
+          className={`w-full text-xs py-2 rounded-lg border transition-colors
+            ${s.latinFontEnabled ? 'border-blue-500 bg-blue-950/40 text-white' : 'border-gray-800 bg-gray-900 text-gray-400'}`}
+        >
+          英数字を欧文フォントに（和欧混植） {s.latinFontEnabled ? 'ON' : 'OFF'}
+        </button>
+        <p className="text-[11px] text-gray-600">
+          日本語フォントの英数字は間延びしがちです。ONにすると英数字だけペアの欧文フォントで表示され、テレビ品質の仕上がりになります。
+        </p>
       </Row>
 
       {/* 文字サイズ */}
@@ -189,6 +202,12 @@ export function SubtitleStyleSettings() {
         <Toggle label="縁取り" value={s.outline} onChange={() => setSubtitleStyle({ outline: !s.outline })} />
         <Toggle label="影" value={s.shadow} onChange={() => setSubtitleStyle({ shadow: !s.shadow })} />
       </div>
+      {/* 装飾過多ヒント（装飾は引き算） */}
+      {[s.outline, s.shadow, s.backgroundEnabled].filter(Boolean).length >= 3 && (
+        <p className="text-[11px] text-amber-400/90 bg-amber-950/30 border border-amber-900/50 rounded-lg px-2.5 py-1.5">
+          💡 縁取り＋影＋背景を同時に使うと文字が埋もれがちです。装飾は絞った方が洗練されます
+        </p>
+      )}
       {s.outline && (
         <Row label="縁取りの色">
           <div className="flex items-center gap-3">

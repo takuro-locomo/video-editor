@@ -10,7 +10,11 @@ export interface StyleRun {
   to: number              // 文字インデックス（exclusive）
   sizeMultiplier?: number // 例: 1.5 → セグメント基準サイズの150%
   color?: string          // #RRGGBB
+  bold?: boolean          // 部分太字（キーワード強調用）
 }
+
+/** セーフゾーンガイドのプリセット（F-04） */
+export type SafeZonePresetKey = 'off' | 'landscape' | 'ytshorts' | 'tiktok' | 'instagram'
 
 export interface SubtitleSegment {
   id: string
@@ -38,6 +42,7 @@ export interface SubtitleStyle {
   backgroundOpacity: number // 0〜1
   position: SubtitlePosition
   maxCharsPerLine: number // 1行の最大文字数（0=制限なし）。超えたら自動改行
+  latinFontEnabled: boolean // F-09 和欧混植: 英数字をペアの欧文フォントで表示
 }
 
 export type OutputAspect = 'original' | '9:16' | '1:1' | '16:9'
@@ -67,6 +72,7 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   backgroundOpacity: 0.6,
   position: 'bottom',
   maxCharsPerLine: 0,
+  latinFontEnabled: false,
 }
 
 export interface TranscribeResult {

@@ -15,18 +15,34 @@ export function hexToAssColorInline(hex: string): string {
   return `&H${toHex(b)}${toHex(g)}${toHex(r)}&`
 }
 
-/** プレビュー(CSS)用のフォントスタック */
-export function fontFamilyToCss(family: SubtitleFontFamily): string {
+/**
+ * F-09 和欧混植: 和文フォントとペアリングする欧文フォント。
+ * css はプレビュー用スタック、ass は書き出し(libass)用のフォント名（OS標準フォントから選定）。
+ */
+export const LATIN_FONT_PAIRS: Record<SubtitleFontFamily, { css: string; ass: string }> = {
+  gothic: { css: '"Helvetica Neue", Arial', ass: 'Arial' },
+  notosans: { css: '"Segoe UI", "Helvetica Neue", Arial', ass: 'Segoe UI' },
+  maru: { css: 'Verdana', ass: 'Verdana' },
+  mincho: { css: '"Times New Roman", Georgia', ass: 'Times New Roman' },
+}
+
+/**
+ * プレビュー(CSS)用のフォントスタック。
+ * latinEnabled のときは欧文フォントを先頭に置く（英数字だけが欧文フォントで描画され、
+ * 和文グリフは後続の日本語フォントにフォールバックする＝和欧混植）。
+ */
+export function fontFamilyToCss(family: SubtitleFontFamily, latinEnabled = false): string {
+  const latin = latinEnabled ? `${LATIN_FONT_PAIRS[family].css}, ` : ''
   switch (family) {
     case 'mincho':
-      return '"Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "MS Mincho", serif'
+      return `${latin}"Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "MS Mincho", serif`
     case 'notosans':
-      return '"Noto Sans JP", "Yu Gothic", sans-serif'
+      return `${latin}"Noto Sans JP", "Yu Gothic", sans-serif`
     case 'maru':
-      return '"Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif'
+      return `${latin}"Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif`
     case 'gothic':
     default:
-      return '"Hiragino Sans", "Yu Gothic", "YuGothic", "Meiryo", sans-serif'
+      return `${latin}"Hiragino Sans", "Yu Gothic", "YuGothic", "Meiryo", sans-serif`
   }
 }
 

@@ -2,7 +2,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
 import { SubtitleOverlay } from '@/components/subtitle/SubtitleOverlay'
-import { OutputAspect } from '@/types/subtitle'
+import { SafeZoneOverlay } from './SafeZoneOverlay'
+import { ContrastChecker } from './ContrastChecker'
+import { SAFE_ZONE_OPTIONS } from '@/lib/telop-rules'
+import { OutputAspect, SafeZonePresetKey } from '@/types/subtitle'
 
 // iPhone 16 Pro の画面比（幅/高さ, ポートレート）: 1206 x 2622px
 const IPHONE16PRO_RATIO = 1206 / 2622
@@ -45,6 +48,8 @@ export function VideoPlayer() {
     setNaturalSize,
     setPreviewDevice,
     setPreviewOrientation,
+    safeZonePreset,
+    setSafeZonePreset,
   } = useEditorStore()
   const [area, setArea] = useState({ w: 0, h: 0 })
 
@@ -135,7 +140,24 @@ export function VideoPlayer() {
             ))}
           </div>
         )}
+        {/* セーフゾーンガイド（F-04） */}
+        <select
+          value={safeZonePreset}
+          onChange={(e) => setSafeZonePreset(e.target.value as SafeZonePresetKey)}
+          className={`text-xs px-2 py-1.5 rounded-lg border bg-gray-900 outline-none cursor-pointer
+            ${safeZonePreset !== 'off' ? 'border-cyan-700 text-cyan-300' : 'border-gray-800 text-gray-400'}`}
+          title="セーフゾーンガイド"
+        >
+          {SAFE_ZONE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              🛟 {o.label}
+            </option>
+          ))}
+        </select>
       </div>
+
+      {/* コントラスト警告（F-03） */}
+      <ContrastChecker videoRef={videoRef} />
 
       {/* 表示領域 */}
       <div ref={areaRef} className="flex-1 min-h-0 flex items-center justify-center">
@@ -159,6 +181,7 @@ export function VideoPlayer() {
               playsInline
             />
             <SubtitleOverlay />
+            <SafeZoneOverlay />
           </div>
         </div>
       </div>
