@@ -50,6 +50,7 @@ export function VideoPlayer() {
     setPreviewOrientation,
     safeZonePreset,
     setSafeZonePreset,
+    seekRequest,
   } = useEditorStore()
   const [area, setArea] = useState({ w: 0, h: 0 })
 
@@ -58,6 +59,13 @@ export function VideoPlayer() {
     if (!video || !videoUrl) return
     video.src = videoUrl
   }, [videoUrl])
+
+  // 字幕クリック等からのシーク要求 → 動画プレーヤーを実際に動かす（プレビュー連動）
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !seekRequest) return
+    video.currentTime = seekRequest.time
+  }, [seekRequest])
 
   useEffect(() => {
     const video = videoRef.current

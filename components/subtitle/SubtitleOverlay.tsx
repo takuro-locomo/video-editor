@@ -143,6 +143,14 @@ export function SubtitleOverlay() {
                   if (p.run.sizeMultiplier) style.fontSize = `${fontSize * p.run.sizeMultiplier}px`
                   if (p.run.color) style.color = p.run.color
                   if (p.run.bold) style.fontWeight = 800
+                  if (p.run.backgroundColor) {
+                    // 部分背景（マーカー風ハイライト）。書き出しでは縁取り色による近似になる
+                    style.backgroundColor = p.run.backgroundColor
+                    style.borderRadius = '0.12em'
+                    style.padding = '0.02em 0.08em'
+                    style.boxDecorationBreak = 'clone'
+                    style.WebkitBoxDecorationBreak = 'clone'
+                  }
                   return <span key={i} style={style}>{p.text}</span>
                 })}
               </span>

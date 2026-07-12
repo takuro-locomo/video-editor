@@ -1,13 +1,21 @@
 'use client'
 import { useRef, useState } from 'react'
 import { useEditorStore } from '@/store/editorStore'
-import { SubtitleFontFamily, SubtitleSegment, StyleRun } from '@/types/subtitle'
+import { SubtitleFontFamily, SubtitleSegment } from '@/types/subtitle'
 import { formatTime } from '@/lib/time-utils'
+import { applyRunPatch, RunProps } from '@/lib/style-runs'
 
 const FONT_OPTIONS: { value: SubtitleFontFamily; label: string }[] = [
   { value: 'gothic', label: 'ゴシック' },
   { value: 'mincho', label: '明朝' },
   { value: 'notosans', label: 'Noto' },
+  { value: 'maru', label: '丸ゴ' },
+]
+
+const SIZE_OPTIONS = [
+  { label: '×1.2', value: 1.2 },
+  { label: '×1.5', value: 1.5 },
+  { label: '×2.0', value: 2.0 },
 ]
 
 function SubtitleItem({
@@ -30,7 +38,7 @@ function SubtitleItem({
     resetSegmentStyleKey,
     updateSegmentRuns,
     deleteSegment,
-    setCurrentTime,
+    requestSeek,
     splitSegment,
     mergeWithNext,
   } = useEditorStore()
@@ -61,24 +69,19 @@ function SubtitleItem({
     setSelection({ from: ta.selectionStart, to: ta.selectionEnd })
   }
 
-  const applyBig = () => {
+  // 選択範囲に装飾を合成適用（既存の装飾は保持しつつ上書き。大きく＋色などの併用が可能）
+  const applyToSelection = (patch: RunProps | null) => {
     if (!selection) return
-    const run: StyleRun = { from: selection.from, to: selection.to, sizeMultiplier: 1.5 }
-    const existing = (segment.styleRuns ?? []).filter(
-      (r) => r.to <= selection.from || r.from >= selection.to
-    )
-    updateSegmentRuns(segment.id, [...existing, run])
-    setSelection(null)
-  }
-
-  const applyRunColor = (color: string) => {
-    if (!selection) return
-    const run: StyleRun = { from: selection.from, to: selection.to, color }
-    const existing = (segment.styleRuns ?? []).filter(
-      (r) => r.to <= selection.from || r.from >= selection.to
-    )
-    updateSegmentRuns(segment.id, [...existing, run])
-    setSelection(null)
+    // テキストが書き換えられていたら先に確定する（装飾位置とテキストのズレを防ぐ）
+    const textChanged = editText !== segment.text
+    const baseRuns = textChanged ? [] : segment.styleRuns ?? []
+    const runs = applyRunPatch(editText.length, baseRuns, selection.from, selection.to, patch)
+    if (textChanged) {
+      updateSegment(segment.id, { text: editText, styleRuns: runs.length ? runs : undefined })
+    } else {
+      updateSegmentRuns(segment.id, runs)
+    }
+    // 選択は維持する（続けて別の装飾を掛けられるように）
   }
 
   // グローバルとマージした有効値（個別パネルの表示用）
@@ -95,7 +98,7 @@ function SubtitleItem({
         <div className="flex items-center gap-2">
           <button
             className="text-xs text-blue-400 hover:text-blue-300 font-mono"
-            onClick={(e) => { e.stopPropagation(); setCurrentTime(segment.startTime) }}
+            onClick={(e) => { e.stopPropagation(); requestSeek(segment.startTime + 0.01) }}
           >
             {formatTime(segment.startTime)}
           </button>
@@ -130,9 +133,12 @@ function SubtitleItem({
             className="text-xs text-gray-500 hover:text-white px-2 py-0.5 rounded"
             onClick={(e) => {
               e.stopPropagation()
-              setIsEditing(!isEditing)
+              const entering = !isEditing
+              setIsEditing(entering)
               setEditText(segment.text)
               setSelection(null)
+              // 編集を始めたらプレビューをこの字幕の位置へ（編集結果をリアルタイム確認）
+              if (entering) requestSeek(segment.startTime + 0.01)
             }}
           >{isEditing ? 'キャンセル' : '編集'}</button>
           <button
@@ -267,6 +273,61 @@ function SubtitleItem({
             >太字 {eff.bold ? 'ON' : 'OFF'}</button>
           </div>
 
+          {/* 背景（このテロップだけ座布団を敷く/色を変える） */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-gray-400">背景</label>
+              {segment.styleOverride?.backgroundEnabled !== undefined ||
+              segment.styleOverride?.backgroundColor !== undefined ||
+              segment.styleOverride?.backgroundOpacity !== undefined ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-purple-400 bg-purple-950/60 px-1.5 py-0.5 rounded">個別</span>
+                  <button
+                    onClick={() => {
+                      resetSegmentStyleKey(segment.id, 'backgroundEnabled')
+                      resetSegmentStyleKey(segment.id, 'backgroundColor')
+                      resetSegmentStyleKey(segment.id, 'backgroundOpacity')
+                    }}
+                    className="text-[10px] text-gray-500 hover:text-gray-300"
+                    title="グローバル設定に戻す"
+                  >↺ 全体に戻す</button>
+                </div>
+              ) : (
+                <span className="text-[10px] text-gray-600">全体設定を使用中</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => updateSegmentStyle(segment.id, { backgroundEnabled: !eff.backgroundEnabled })}
+                className={`text-xs px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
+                  eff.backgroundEnabled
+                    ? segment.styleOverride?.backgroundEnabled !== undefined
+                      ? 'border-purple-500 bg-purple-950 text-white'
+                      : 'border-blue-400/60 bg-blue-950/30 text-blue-200'
+                    : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                }`}
+              >背景 {eff.backgroundEnabled ? 'ON' : 'OFF'}</button>
+              {eff.backgroundEnabled && (
+                <>
+                  <input
+                    type="color"
+                    value={eff.backgroundColor}
+                    onChange={(e) => updateSegmentStyle(segment.id, { backgroundColor: e.target.value })}
+                    className="w-10 h-8 rounded cursor-pointer bg-transparent border border-gray-700 p-0.5"
+                    title="背景色"
+                  />
+                  <input
+                    type="range" min={0.1} max={1} step={0.05}
+                    value={eff.backgroundOpacity}
+                    onChange={(e) => updateSegmentStyle(segment.id, { backgroundOpacity: Number(e.target.value) })}
+                    className="flex-1 accent-purple-500"
+                    title={`不透明度 ${Math.round(eff.backgroundOpacity * 100)}%`}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
           {/* 全項目リセット（個別設定がある場合のみ表示） */}
           {hasOverride && (
             <button
@@ -292,6 +353,14 @@ function SubtitleItem({
                     <span
                       className="w-4 h-4 rounded-full inline-block border border-gray-600 flex-shrink-0"
                       style={{ backgroundColor: run.color }}
+                      title="文字色"
+                    />
+                  )}
+                  {run.backgroundColor && (
+                    <span
+                      className="w-4 h-4 rounded-sm inline-block border border-gray-600 flex-shrink-0"
+                      style={{ backgroundColor: run.backgroundColor }}
+                      title="背景色"
                     />
                   )}
                   <button
@@ -325,25 +394,56 @@ function SubtitleItem({
             autoFocus
           />
 
-          {/* 選択時のインライン装飾バー */}
+          {/* 選択時のインライン装飾バー（装飾は合成される: 大きく＋色＋背景の併用OK） */}
           {selection && (
-            <div className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-gray-400 flex-1 truncate min-w-0">
-                「{editText.slice(selection.from, selection.to)}」を装飾
+            <div className="space-y-1.5 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+              <span className="text-xs text-gray-400 block truncate">
+                「{editText.slice(selection.from, selection.to)}」を装飾（組み合わせ可）
               </span>
-              <button
-                onMouseDown={(e) => { e.preventDefault(); applyBig() }}
-                className="text-xs bg-blue-700 hover:bg-blue-600 text-white px-2 py-0.5 rounded flex-shrink-0"
-              >A+ 大きく</button>
-              <label className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-0.5 rounded cursor-pointer flex-shrink-0 relative">
-                色を変える
-                <input
-                  type="color"
-                  className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                  defaultValue="#FFD700"
-                  onInput={(e) => applyRunColor((e.target as HTMLInputElement).value)}
-                />
-              </label>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {SIZE_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    onMouseDown={(e) => { e.preventDefault(); applyToSelection({ sizeMultiplier: o.value }) }}
+                    className="text-xs bg-blue-700 hover:bg-blue-600 text-white px-2 py-0.5 rounded flex-shrink-0"
+                    title={`文字を${o.label}に拡大`}
+                  >A{o.label}</button>
+                ))}
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); applyToSelection({ bold: true }) }}
+                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white font-bold px-2.5 py-0.5 rounded flex-shrink-0"
+                  title="部分太字"
+                >B</button>
+                <label
+                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-0.5 rounded cursor-pointer flex-shrink-0 relative"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  文字色
+                  <input
+                    type="color"
+                    className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                    defaultValue="#FFD700"
+                    onInput={(e) => applyToSelection({ color: (e.target as HTMLInputElement).value })}
+                  />
+                </label>
+                <label
+                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-0.5 rounded cursor-pointer flex-shrink-0 relative"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  背景
+                  <input
+                    type="color"
+                    className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                    defaultValue="#E11D48"
+                    onInput={(e) => applyToSelection({ backgroundColor: (e.target as HTMLInputElement).value })}
+                  />
+                </label>
+                <button
+                  onMouseDown={(e) => { e.preventDefault(); applyToSelection(null); setSelection(null) }}
+                  className="text-xs text-gray-400 hover:text-white px-2 py-0.5 rounded border border-gray-700 flex-shrink-0"
+                  title="選択範囲の装飾をすべて解除"
+                >解除</button>
+              </div>
             </div>
           )}
 
@@ -353,7 +453,11 @@ function SubtitleItem({
               <input
                 type="range" min={0} max={segment.endTime - 0.1} step={0.1}
                 value={segment.startTime}
-                onChange={(e) => updateSegment(segment.id, { startTime: Number(e.target.value) })}
+                onChange={(e) => {
+                  const t = Number(e.target.value)
+                  updateSegment(segment.id, { startTime: t })
+                  requestSeek(t + 0.01) // 動かしながらプレビューで確認できるように
+                }}
                 className="w-full mt-1 accent-blue-500"
               />
             </label>
@@ -362,7 +466,11 @@ function SubtitleItem({
               <input
                 type="range" min={segment.startTime + 0.1} max={segment.startTime + 30} step={0.1}
                 value={segment.endTime}
-                onChange={(e) => updateSegment(segment.id, { endTime: Number(e.target.value) })}
+                onChange={(e) => {
+                  const t = Number(e.target.value)
+                  updateSegment(segment.id, { endTime: t })
+                  requestSeek(Math.max(segment.startTime, t - 0.01))
+                }}
                 className="w-full mt-1 accent-blue-500"
               />
             </label>
@@ -426,7 +534,7 @@ export function SubtitleEditor() {
           isActive={currentTime >= seg.startTime && currentTime <= seg.endTime}
           isLast={i === segments.length - 1}
           currentTime={currentTime}
-          onClick={() => useEditorStore.getState().setCurrentTime(seg.startTime)}
+          onClick={() => useEditorStore.getState().requestSeek(seg.startTime + 0.01)}
         />
       ))}
     </div>

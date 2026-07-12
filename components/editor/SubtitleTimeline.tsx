@@ -14,7 +14,7 @@ type DragInfo = {
 export function SubtitleTimeline() {
   const {
     segments, duration, currentTime, trimRanges,
-    updateSegment, saveToHistory,
+    updateSegment, saveToHistory, requestSeek,
   } = useEditorStore()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -68,6 +68,16 @@ export function SubtitleTimeline() {
     setDraggingId(null)
   }
 
+  // 空きエリアのクリックで再生位置をシーク（字幕バー上はドラッグ操作を優先）
+  const onBackgroundPointerDown = (e: React.PointerEvent) => {
+    if (dragRef.current) return
+    const el = containerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const x = e.clientX - rect.left + el.scrollLeft
+    requestSeek(Math.max(0, Math.min(x / getPps(), duration)))
+  }
+
   const pps = getPps()
   const totalPx = Math.max(duration * pps, containerRef.current?.clientWidth ?? 300)
 
@@ -92,7 +102,8 @@ export function SubtitleTimeline() {
   return (
     <div
       ref={containerRef}
-      className="mt-2 relative h-14 bg-gray-900 border border-gray-800 rounded-lg overflow-x-auto overflow-y-hidden select-none"
+      className="mt-2 relative h-14 bg-gray-900 border border-gray-800 rounded-lg overflow-x-auto overflow-y-hidden select-none cursor-pointer"
+      onPointerDown={onBackgroundPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >

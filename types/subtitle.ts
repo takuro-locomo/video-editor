@@ -11,6 +11,7 @@ export interface StyleRun {
   sizeMultiplier?: number // 例: 1.5 → セグメント基準サイズの150%
   color?: string          // #RRGGBB
   bold?: boolean          // 部分太字（キーワード強調用）
+  backgroundColor?: string // #RRGGBB 部分背景（マーカー風ハイライト）
 }
 
 /** セーフゾーンガイドのプリセット（F-04） */

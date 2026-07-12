@@ -52,9 +52,21 @@ function buildOrigToWrappedMap(orig: string, wrapped: string): number[] {
   return map
 }
 
+/** applyRunsToAss で部分背景を再現するための基準値 */
+type RunAssContext = {
+  /** ベースの縁取り太さ(px)。ラン終了時に戻す */
+  outlinePx: number
+  /** BorderStyle=3（不透明ボックス背景）モードか。boxモードでは \3c がボックス色になる */
+  boxMode: boolean
+  /** ベースの縁取り色（boxモードでは背景色）。ラン終了時に戻す */
+  outlineColorHex: string
+}
+
 /**
  * スタイルランを考慮した ASS テキストを生成。
  * 折り返し済みテキストの適切な位置に \fs・\c タグを挿入し、ラン終了後はベースに戻す。
+ * 部分背景(backgroundColor)は、背景ボックスあり(BorderStyle=3)ならボックス色の変更、
+ * なしなら太い縁取りによるマーカー風ハイライトで近似する。
  */
 function applyRunsToAss(
   orig: string,
@@ -62,7 +74,8 @@ function applyRunsToAss(
   baseFontPx: number,
   baseColor: string,
   baseBold: boolean,
-  effectiveMaxChars: number
+  effectiveMaxChars: number,
+  ctx: RunAssContext
 ): string {
   const wrapped = wrapText(orig, effectiveMaxChars)
   const validRuns = runs
@@ -87,12 +100,20 @@ function applyRunsToAss(
     if (run.sizeMultiplier) open.push(`\\fs${Math.round(baseFontPx * run.sizeMultiplier)}`)
     if (run.color) open.push(`\\c${hexToAssColorInline(run.color)}`)
     if (run.bold) open.push('\\b1')
+    if (run.backgroundColor) {
+      if (!ctx.boxMode) open.push(`\\bord${Math.max(3, Math.round(baseFontPx * 0.18))}`)
+      open.push(`\\3c${hexToAssColorInline(run.backgroundColor)}`)
+    }
     if (open.length) result += `{${open.join('')}}`
     result += escapeContent(wChars.slice(wFrom, wTo).join(''))
     const close: string[] = []
     if (run.sizeMultiplier) close.push(`\\fs${baseFontPx}`)
     if (run.color) close.push(`\\c${hexToAssColorInline(baseColor)}`)
     if (run.bold) close.push(`\\b${baseBold ? 1 : 0}`)
+    if (run.backgroundColor) {
+      if (!ctx.boxMode) close.push(`\\bord${ctx.outlinePx}`)
+      close.push(`\\3c${hexToAssColorInline(ctx.outlineColorHex)}`)
+    }
     if (close.length) result += `{${close.join('')}}`
     wi = wTo
   }
@@ -126,9 +147,47 @@ function positionToAlignment(position: SubtitleStyle['position']): number {
   return position === 'top' ? 8 : position === 'middle' ? 5 : 2
 }
 
+/** ASS の Style 行と、イベント生成に必要な計算済みパラメータ */
+function computeAssStyleParams(s: SubtitleStyle, width: number, height: number) {
+  const fontName = fontFamilyToAss(s.fontFamily)
+  const fontSize = Math.round((s.fontSizePercent / 100) * height)
+  const primary = hexToAssColor(s.textColor, 1)
+  // libass の BorderStyle=3（不透明ボックス）はボックスを OutlineColour で描画するため、
+  // 背景ありのときは OutlineColour に背景色+不透明度を入れる（ベタ塗りバグの修正）
+  const outlineColorHex = s.backgroundEnabled ? s.backgroundColor : s.outlineColor ?? '#000000'
+  const outlineColour = s.backgroundEnabled
+    ? hexToAssColor(s.backgroundColor, s.backgroundOpacity)
+    : hexToAssColor(outlineColorHex, 1)
+  const backColour = hexToAssColor(s.backgroundColor, s.backgroundOpacity)
+  const bold = s.bold ? -1 : 0
+  const italic = s.italic ? -1 : 0
+  // 背景ありなら不透明ボックス(3)、なければ縁取り(1)
+  const borderStyle = s.backgroundEnabled ? 3 : 1
+  const outline = s.backgroundEnabled
+    ? Math.max(4, Math.round(height * 0.006)) // ボックスの余白
+    : s.outline
+    ? Math.max(2, Math.round(height * 0.004)) // 縁取りの太さ
+    : 0
+  const shadow = s.backgroundEnabled
+    ? 0
+    : s.shadow
+    ? Math.max(2, Math.round(height * 0.004))
+    : 0
+  const alignment = positionToAlignment(s.position)
+  const marginV = Math.round(height * 0.06)
+  const marginLR = Math.round(width * 0.04)
+
+  const styleLine = (name: string) =>
+    `Style: ${name},${fontName},${fontSize},${primary},&H000000FF,${outlineColour},${backColour},${bold},${italic},0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginLR},${marginLR},${marginV},1`
+
+  return { fontName, fontSize, outline, borderStyle, outlineColorHex, styleLine }
+}
+
 /**
  * SubtitleSegment[] を スタイル付き ASS 文字列に変換。
  * PlayResX/Y を動画の実寸にすることで、フォントサイズ(%)が出力解像度に正しく追従する。
+ * 個別スタイル(styleOverride)を持つセグメントには専用の Style 行を生成する
+ * （背景・位置・縁取りなどインラインタグで表現できない上書きも書き出しに反映するため）。
  */
 export function segmentsToAss(
   segments: SubtitleSegment[],
@@ -136,70 +195,28 @@ export function segmentsToAss(
   width: number,
   height: number
 ): string {
-  const fontName = fontFamilyToAss(style.fontFamily)
-  const fontSize = Math.round((style.fontSizePercent / 100) * height)
-  const primary = hexToAssColor(style.textColor, 1)
-  // libass の BorderStyle=3（不透明ボックス）はボックスを OutlineColour で描画するため、
-  // 背景ありのときは OutlineColour に背景色+不透明度を入れる（ベタ塗りバグの修正）
-  const outlineColour = style.backgroundEnabled
-    ? hexToAssColor(style.backgroundColor, style.backgroundOpacity)
-    : hexToAssColor(style.outlineColor ?? '#000000', 1)
-  const backColour = hexToAssColor(style.backgroundColor, style.backgroundOpacity)
-  const bold = style.bold ? -1 : 0
-  const italic = style.italic ? -1 : 0
-  // 背景ありなら不透明ボックス(3)、なければ縁取り(1)
-  const borderStyle = style.backgroundEnabled ? 3 : 1
-  const outline = style.backgroundEnabled
-    ? Math.max(4, Math.round(height * 0.006)) // ボックスの余白
-    : style.outline
-    ? Math.max(2, Math.round(height * 0.004)) // 縁取りの太さ
-    : 0
-  const shadow = style.backgroundEnabled
-    ? 0
-    : style.shadow
-    ? Math.max(2, Math.round(height * 0.004))
-    : 0
-  const alignment = positionToAlignment(style.position)
-  const marginV = Math.round(height * 0.06)
-  const marginLR = Math.round(width * 0.04)
-
-  const header = [
-    '[Script Info]',
-    'ScriptType: v4.00+',
-    `PlayResX: ${width}`,
-    `PlayResY: ${height}`,
-    'WrapStyle: 0',
-    'ScaledBorderAndShadow: yes',
-    '',
-    '[V4+ Styles]',
-    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${fontName},${fontSize},${primary},&H000000FF,${outlineColour},${backColour},${bold},${italic},0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginLR},${marginLR},${marginV},1`,
-    '',
-    '[Events]',
-    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
-  ].join('\n')
+  const base = computeAssStyleParams(style, width, height)
+  const styleLines: string[] = [base.styleLine('Default')]
 
   const events = segments
-    .map((seg) => {
-      // セグメント個別スタイルをグローバルとマージ
+    .map((seg, idx) => {
+      // セグメント個別スタイルをグローバルとマージ。上書きがあれば専用 Style を発行
       const eff = mergeStyle(style, seg.styleOverride)
-      const segFontPx = Math.round((eff.fontSizePercent / 100) * height)
-      const segMaxChars = computeEffectiveMaxChars(width, height, eff.fontSizePercent, eff.maxCharsPerLine)
+      const hasOverride = !!seg.styleOverride && Object.keys(seg.styleOverride).length > 0
+      const params = hasOverride ? computeAssStyleParams(eff, width, height) : base
+      const styleName = hasOverride ? `Seg${idx}` : 'Default'
+      if (hasOverride) styleLines.push(params.styleLine(styleName))
 
-      // 個別上書きがある場合、行頭にインライン ASS タグを追加
-      const overrideTags: string[] = []
-      if (seg.styleOverride) {
-        const ov = seg.styleOverride
-        if (ov.fontFamily !== undefined) overrideTags.push(`\\fn${fontFamilyToAss(ov.fontFamily)}`)
-        if (ov.fontSizePercent !== undefined) overrideTags.push(`\\fs${segFontPx}`)
-        if (ov.textColor !== undefined) overrideTags.push(`\\c${hexToAssColorInline(ov.textColor)}`)
-        if (ov.bold !== undefined) overrideTags.push(`\\b${ov.bold ? 1 : 0}`)
-      }
-      const prefix = overrideTags.length ? `{${overrideTags.join('')}}` : ''
+      const segFontPx = params.fontSize
+      const segMaxChars = computeEffectiveMaxChars(width, height, eff.fontSizePercent, eff.maxCharsPerLine)
 
       // インラインスタイルランがあれば run タグ込みで生成
       let textPart = seg.styleRuns?.length
-        ? applyRunsToAss(seg.text, seg.styleRuns, segFontPx, eff.textColor, eff.bold, segMaxChars)
+        ? applyRunsToAss(seg.text, seg.styleRuns, segFontPx, eff.textColor, eff.bold, segMaxChars, {
+            outlinePx: params.outline,
+            boxMode: params.borderStyle === 3,
+            outlineColorHex: params.outlineColorHex,
+          })
         : escapeAssText(wrapText(seg.text, segMaxChars))
 
       // F-09 和欧混植: 英数字だけペアの欧文フォントに差し替え
@@ -232,14 +249,30 @@ export function segmentsToAss(
             } else {
               y = height - segMarginV - (n - 1 - li) * lineHeight
             }
-            return `Dialogue: 0,${start},${end},Default,,0,0,0,,{\\an${positionToAlignment(eff.position)}\\pos(${x},${y})}${prefix}${lineText}`
+            return `Dialogue: 0,${start},${end},${styleName},,0,0,0,,{\\an${positionToAlignment(eff.position)}\\pos(${x},${y})}${lineText}`
           })
           .join('\n')
       }
 
-      return `Dialogue: 0,${start},${end},Default,,0,0,0,,${prefix}${textPart}`
+      return `Dialogue: 0,${start},${end},${styleName},,0,0,0,,${textPart}`
     })
     .join('\n')
+
+  const header = [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    'WrapStyle: 0',
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    ...styleLines,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+  ].join('\n')
 
   return `${header}\n${events}\n`
 }

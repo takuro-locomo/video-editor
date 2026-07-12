@@ -54,6 +54,8 @@ interface EditorState {
   // 再生状態
   currentTime: number
   isPlaying: boolean
+  /** 動画プレーヤーへのシーク要求（字幕クリック→プレビュー連動用）。nonce で同時刻への再要求も発火させる */
+  seekRequest: { time: number; nonce: number } | null
 
   // UI状態
   activeTab: 'video' | 'subtitles' | 'settings'
@@ -91,6 +93,8 @@ interface EditorState {
   deleteTrimRange: (index: number) => void
   clearTrimRanges: () => void
   setCurrentTime: (time: number) => void
+  /** 動画プレーヤーを指定時刻へシークさせる（プレビュー連動） */
+  requestSeek: (time: number) => void
   setIsPlaying: (playing: boolean) => void
   setActiveTab: (tab: 'video' | 'subtitles' | 'settings') => void
   setIsTranscribing: (v: boolean) => void
@@ -134,6 +138,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   _future: [],
   currentTime: 0,
   isPlaying: false,
+  seekRequest: null,
   activeTab: 'video',
   isTranscribing: false,
   isExporting: false,
@@ -271,6 +276,11 @@ export const useEditorStore = create<EditorState>((set) => ({
   clearTrimRanges: () =>
     set((s) => ({ ...withHist(s), trimRanges: [] })),
   setCurrentTime: (currentTime) => set({ currentTime }),
+  requestSeek: (time) =>
+    set((s) => ({
+      currentTime: time,
+      seekRequest: { time, nonce: (s.seekRequest?.nonce ?? 0) + 1 },
+    })),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
   setActiveTab: (activeTab) => set({ activeTab }),
   setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
